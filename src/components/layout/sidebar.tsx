@@ -20,12 +20,14 @@ import {
     NotebookText,
     CalendarClock,
     GalleryHorizontalEnd,
+    BarChart3,
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { confirmAction } from "@/components/ui/confirm-modal";
 
 const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
+    { name: "Founder Analytics", href: "/analytics", icon: BarChart3 },
     { name: "Users", href: "/users", icon: Users },
     { name: "Batches", href: "/batches", icon: Layers },
     { name: "Curriculum", href: "/curriculum", icon: BookOpen },
