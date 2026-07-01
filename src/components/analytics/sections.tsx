@@ -102,7 +102,7 @@ export function ProblemSolvingSection({ filters }: { filters: Filters }) {
     const cols: Column<(typeof rows)[number]>[] = [
         { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
         { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{r.questions_solved.toLocaleString()}</span>, align: "right" },
+        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{(r.questions_solved ?? 0).toLocaleString()}</span>, align: "right" },
     ];
 
     return (
@@ -151,8 +151,8 @@ export function RatingSection({ filters }: { filters: Filters }) {
         { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
         { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
         { key: "title", header: "Title", render: r => <span className="text-xs text-muted-foreground">{r.title || "—"}</span> },
-        { key: "rating", header: "Rating", render: r => <span className="font-bold tabular-nums">{r.current_rating.toLocaleString()}</span>, align: "right" },
-        { key: "peak", header: "Peak", render: r => <span className="text-muted-foreground tabular-nums">{r.max_rating.toLocaleString()}</span>, align: "right" },
+        { key: "rating", header: "Rating", render: r => <span className="font-bold tabular-nums">{(r.current_rating ?? 0).toLocaleString()}</span>, align: "right" },
+        { key: "peak", header: "Peak", render: r => <span className="text-muted-foreground tabular-nums">{(r.max_rating ?? 0).toLocaleString()}</span>, align: "right" },
     ];
 
     return (
@@ -201,7 +201,7 @@ export function StreakSection({ filters }: { filters: Filters }) {
     const cols: Column<(typeof rows)[number]>[] = [
         { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
         { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{r.streak_count.toLocaleString()} days</span>, align: "right" },
+        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{(r.streak_count ?? 0).toLocaleString()} days</span>, align: "right" },
     ];
 
     return (
@@ -262,10 +262,10 @@ export function ContestSection() {
     );
 
     const cols: Column<NonNullable<typeof ranking>["rows"][number]>[] = [
-        { key: "rank", header: "#", render: r => <RankBadge rank={r.rank} />, align: "center", className: "w-10" },
+        { key: "rank", header: "#", render: (r, i) => <RankBadge rank={r.rank ?? i + 1} />, align: "center", className: "w-10" },
         { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
         { key: "acc", header: "Accuracy", render: r => <span className="text-muted-foreground tabular-nums">{Math.round((r.accuracy || 0) * 100)}%</span>, align: "right" },
-        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{r.score.toLocaleString()}</span>, align: "right" },
+        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{(r.score ?? 0).toLocaleString()}</span>, align: "right" },
     ];
 
     return (

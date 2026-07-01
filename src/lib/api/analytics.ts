@@ -121,14 +121,41 @@ export async function fetchAllUsers(): Promise<AnalyticsUser[]> {
     return out;
 }
 
+// Ranking endpoints are not perfectly uniform in their field names (the
+// leaderboard page already defends across `metric_value` / `score`). We
+// normalise each row into our typed shape and coerce the metric to a number so
+// a renamed/absent field degrades to 0 instead of crashing a `.toLocaleString`.
+type RawRow = Record<string, unknown>;
+const num = (...vals: unknown[]): number => {
+    for (const v of vals) {
+        const n = typeof v === "string" ? Number(v) : v;
+        if (typeof n === "number" && Number.isFinite(n)) return n;
+    }
+    return 0;
+};
+const str = (...vals: unknown[]): string => {
+    for (const v of vals) if (typeof v === "string" && v) return v;
+    return "";
+};
+const rowsOf = (data: unknown): RawRow[] => {
+    const d = data as { users?: RawRow[]; rankings?: RawRow[] } | RawRow[] | null;
+    if (Array.isArray(d)) return d;
+    return d?.users ?? d?.rankings ?? [];
+};
+
 /** Top solvers for a time window (or all-time when `time_filter` omitted). */
 export async function fetchArenaRanking(time_filter?: TimeFilter, exam_type?: string): Promise<ArenaRankRow[]> {
     try {
         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
         if (time_filter) params.time_filter = time_filter;
         if (exam_type) params.exam_type = exam_type;
-        const { data } = await apiClient.get<{ users?: ArenaRankRow[] }>("/api/v1/arena-ranking/", { params });
-        return data?.users ?? [];
+        const { data } = await apiClient.get("/api/v1/arena-ranking/", { params });
+        return rowsOf(data).map(u => ({
+            user_id: str(u.user_id, u.id),
+            user_name: str(u.user_name, u.name),
+            avatar_url: (u.avatar_url as string) ?? null,
+            questions_solved: num(u.questions_solved, u.metric_value, u.score),
+        }));
     } catch {
         return [];
     }
@@ -138,8 +165,15 @@ export async function fetchRatingRanking(exam_type?: string): Promise<RatingRank
     try {
         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
         if (exam_type) params.exam_type = exam_type;
-        const { data } = await apiClient.get<{ users?: RatingRankRow[] }>("/api/v1/rating-ranking/", { params });
-        return data?.users ?? [];
+        const { data } = await apiClient.get("/api/v1/rating-ranking/", { params });
+        return rowsOf(data).map(u => ({
+            user_id: str(u.user_id, u.id),
+            user_name: str(u.user_name, u.name),
+            avatar_url: (u.avatar_url as string) ?? null,
+            current_rating: num(u.current_rating, u.rating, u.metric_value),
+            max_rating: num(u.max_rating, u.peak_rating, u.current_rating, u.rating),
+            title: str(u.title),
+        }));
     } catch {
         return [];
     }
@@ -149,11 +183,13 @@ export async function fetchStreakRanking(exam_type?: string): Promise<StreakRank
     try {
         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
         if (exam_type) params.exam_type = exam_type;
-        const { data } = await apiClient.get<{ users?: StreakRankRow[]; rankings?: StreakRankRow[] }>(
-            "/api/v1/streak-ranking/",
-            { params },
-        );
-        return data?.users ?? data?.rankings ?? [];
+        const { data } = await apiClient.get("/api/v1/streak-ranking/", { params });
+        return rowsOf(data).map(u => ({
+            user_id: str(u.user_id, u.id),
+            user_name: str(u.user_name, u.name),
+            avatar_url: (u.avatar_url as string) ?? null,
+            streak_count: num(u.streak_count, u.current_streak, u.streak, u.metric_value),
+        }));
     } catch {
         return [];
     }
@@ -196,11 +232,21 @@ export interface ContestRankingRow {
  * legitimately return empty for contests outside that class. */
 export async function fetchContestRanking(contestId: string): Promise<{ rows: ContestRankingRow[]; total: number }> {
     try {
-        const { data } = await apiClient.get<{ users?: ContestRankingRow[]; total?: number }>(
-            `/api/v1/contest-ranking/${contestId}`,
-            { params: { skip: 0, limit: RANK_PAGE } },
-        );
-        return { rows: data?.users ?? [], total: data?.total ?? data?.users?.length ?? 0 };
+        const { data } = await apiClient.get(`/api/v1/contest-ranking/${contestId}`, {
+            params: { skip: 0, limit: RANK_PAGE },
+        });
+        const raw = rowsOf(data);
+        const rows: ContestRankingRow[] = raw.map((u, i) => ({
+            user_id: str(u.user_id, u.id),
+            user_name: str(u.user_name, u.name),
+            score: num(u.score, u.metric_value),
+            rank: num(u.rank) || i + 1,
+            accuracy: num(u.accuracy),
+            attempted: num(u.attempted),
+            correct: num(u.correct),
+        }));
+        const total = num((data as { total?: unknown })?.total) || rows.length;
+        return { rows, total };
     } catch {
         return { rows: [], total: 0 };
     }
