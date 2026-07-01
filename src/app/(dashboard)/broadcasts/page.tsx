@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { apiClient } from "@/lib/axios";
 import { Megaphone, Send, Users, History, Loader2, Check, Bell, Trash2, Search } from "lucide-react";
@@ -47,23 +47,33 @@ export default function BroadcastsPage() {
     // Target: broadcast to everyone, or send to specific users (individual API).
     const [targetMode, setTargetMode] = useState<"all" | "specific">("all");
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    // Remember display info (name/phone) of selected users so their chips stay
+    // visible even after they scroll out of the current (server-side) search.
+    const [selectedInfo, setSelectedInfo] = useState<Record<string, { name?: string; phone_number?: string }>>({});
     const [userSearch, setUserSearch] = useState("");
-    // Only fetch the user list when the admin is picking specific recipients.
+    const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedUserSearch(userSearch.trim()), 350);
+        return () => clearTimeout(t);
+    }, [userSearch]);
+
+    // Fetch users only when picking specific recipients, and search SERVER-side
+    // (q param) so the picker finds ANY user, not just the first page loaded.
+    const pickerUrl = useMemo(() => {
+        if (targetMode !== "specific") return null;
+        const p = new URLSearchParams();
+        p.set("limit", "50");
+        if (debouncedUserSearch) p.set("q", debouncedUserSearch);
+        return `/api/v1/users/?${p.toString()}`;
+    }, [targetMode, debouncedUserSearch]);
     const { data: usersData } = useSWR<any>(
-        targetMode === "specific" ? "/api/v1/users/?limit=200" : null,
+        pickerUrl,
         (url: string) => apiClient.get(url).then(r => {
             const d = r.data;
             return Array.isArray(d) ? d : (d.users || []);
         })
     );
-    const allUsers: { id: string; name?: string; phone_number?: string }[] = usersData || [];
-    const pickableUsers = useMemo(() => {
-        const q = userSearch.trim().toLowerCase();
-        if (!q) return allUsers.slice(0, 50);
-        return allUsers.filter(u =>
-            (u.name || "").toLowerCase().includes(q) || (u.phone_number || "").includes(q)
-        ).slice(0, 50);
-    }, [allUsers, userSearch]);
+    const pickableUsers: { id: string; name?: string; phone_number?: string }[] = usersData || [];
 
     const [historySearch, setHistorySearch] = useState("");
     const [historyTypeFilter, setHistoryTypeFilter] = useState("");
@@ -134,6 +144,7 @@ export default function BroadcastsPage() {
             setContent("");
             setType("announcement");
             setSelectedUserIds([]);
+            setSelectedInfo({});
             setUserSearch("");
             toast.success(specific ? "Notification sent to selected users." : "Broadcast sent successfully.");
         } catch (err: any) {
@@ -143,8 +154,15 @@ export default function BroadcastsPage() {
         }
     };
 
-    const toggleUser = (id: string) =>
-        setSelectedUserIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    const toggleUser = (u: { id: string; name?: string; phone_number?: string }) => {
+        setSelectedUserIds(prev => prev.includes(u.id) ? prev.filter(x => x !== u.id) : [...prev, u.id]);
+        setSelectedInfo(prev => {
+            const next = { ...prev };
+            if (prev[u.id]) delete next[u.id];
+            else next[u.id] = { name: u.name, phone_number: u.phone_number };
+            return next;
+        });
+    };
 
     const handleDelete = async (id: string) => {
         if (!(await confirmAction({ title: "Delete Notification", description: "Remove this notification from history?" }))) return;
@@ -235,16 +253,30 @@ export default function BroadcastsPage() {
                                             value={userSearch} onChange={e => setUserSearch(e.target.value)}
                                             className="w-full bg-background border border-(--input) rounded-lg pl-8 pr-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all" />
                                     </div>
+                                    {/* Selected chips — persist across searches so you don't lose picks. */}
                                     {selectedUserIds.length > 0 && (
-                                        <p className="text-xs text-brand-600 dark:text-brand-400">{selectedUserIds.length} selected</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {selectedUserIds.map(id => {
+                                                const info = selectedInfo[id];
+                                                return (
+                                                    <span key={id} className="inline-flex items-center gap-1 bg-brand-500/10 text-brand-600 dark:text-brand-400 text-xs px-2 py-1 rounded-full">
+                                                        {info?.name || info?.phone_number || "User"}
+                                                        <button type="button" onClick={() => toggleUser({ id, ...info })}
+                                                            className="hover:text-destructive cursor-pointer" title="Remove">×</button>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
                                     )}
                                     <div className="max-h-44 overflow-y-auto flex flex-col gap-1">
                                         {pickableUsers.length === 0 ? (
-                                            <p className="text-xs text-muted-foreground py-2 text-center">No users found.</p>
+                                            <p className="text-xs text-muted-foreground py-2 text-center">
+                                                {debouncedUserSearch ? "No users found." : "Search to find users…"}
+                                            </p>
                                         ) : pickableUsers.map(u => {
                                             const checked = selectedUserIds.includes(u.id);
                                             return (
-                                                <button type="button" key={u.id} onClick={() => toggleUser(u.id)}
+                                                <button type="button" key={u.id} onClick={() => toggleUser(u)}
                                                     className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-sm text-left transition-colors cursor-pointer ${checked ? "bg-brand-500/10" : "hover:bg-foreground/5"}`}>
                                                     <span className="truncate">
                                                         <span className="text-foreground">{u.name || "Unknown"}</span>
