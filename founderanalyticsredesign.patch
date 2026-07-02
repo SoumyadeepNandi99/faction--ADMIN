@@ -1,0 +1,2422 @@
+diff --git a/src/app/(dashboard)/analytics/contests/page.tsx b/src/app/(dashboard)/analytics/contests/page.tsx
+new file mode 100644
+index 0000000..ebf7348
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/contests/page.tsx
+@@ -0,0 +1,153 @@
++"use client";
++
++import { useMemo, useState } from "react";
++import useSWR from "swr";
++import { Award, Users, Star, TrendingUp, Trophy, Medal } from "lucide-react";
++import { bucketize, fetchContestRanking, mean, median, istParts, type ContestRow } from "@/lib/api/analytics";
++import { useContests } from "@/components/analytics/data";
++import { RangeFilter, defaultRange, type Range } from "@/components/analytics/range";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount, DataTable, RankBadge, NameCell, type Column } from "@/components/analytics/primitives";
++import { HBarList, BarChart } from "@/components/analytics/charts";
++import { CustomSelect } from "@/components/ui/custom-select";
++import { formatDate } from "@/lib/datetime";
++
++function monthKey(c: ContestRow): string | null {
++    const p = istParts(c.starts_at || c.created_at);
++    return p ? p.dateKey.slice(0, 7) : null;
++}
++
++export default function ContestsAnalyticsPage() {
++    const [range, setRange] = useState<Range>(defaultRange);
++    const { contests, loading } = useContests();
++
++    const finished = useMemo(
++        () => [...contests].filter(c => c.status === "finished").sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime()),
++        [contests],
++    );
++    const upcoming = contests.filter(c => c.status !== "finished");
++
++    const [selected, setSelected] = useState("");
++    // Derive the effective selection (default to the latest finished contest)
++    // instead of syncing via an effect.
++    const effSelected = selected || (finished[0]?.id ?? "");
++
++    const { data: ranking, isLoading: rankingLoading } = useSWR(
++        effSelected ? `analytics:contest-ranking:${effSelected}` : null,
++        () => fetchContestRanking(effSelected),
++        { revalidateOnFocus: false, dedupingInterval: 300_000 },
++    );
++    const rows = ranking?.rows ?? [];
++    const scores = rows.map(r => r.score);
++
++    // Participation trend across the most recent finished contests (bounded).
++    const trendContests = useMemo(() => finished.slice(0, 10).reverse(), [finished]);
++    const { data: trend } = useSWR(
++        trendContests.length ? `analytics:contest-trend:${trendContests.map(c => c.id).join(",")}` : null,
++        async () => {
++            const totals = await Promise.all(trendContests.map(c => fetchContestRanking(c.id).then(r => r.total).catch(() => 0)));
++            return trendContests.map((c, i) => ({ label: c.name.slice(0, 12), count: totals[i] }));
++        },
++        { revalidateOnFocus: false, dedupingInterval: 300_000 },
++    );
++
++    const byMonth = useMemo(() => {
++        const m = new Map<string, number>();
++        for (const c of contests) {
++            const k = monthKey(c);
++            if (k) m.set(k, (m.get(k) ?? 0) + 1);
++        }
++        return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => ({ label: label.slice(2), count }));
++    }, [contests]);
++
++    const scoreDist = useMemo(() => {
++        if (!scores.length) return [];
++        const max = Math.max(...scores, 1);
++        const step = Math.max(1, Math.ceil(max / 6));
++        const edges = Array.from({ length: 6 }, (_, i) => ({ label: `${i * step}–${(i + 1) * step}`, min: i * step, max: (i + 1) * step }));
++        return bucketize(scores, edges);
++    }, [scores]);
++
++    const rankCols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: r => <RankBadge rank={r.rank} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "acc", header: "Accuracy", render: r => <span className="text-muted-foreground tabular-nums">{Math.round((r.accuracy || 0) * 100)}%</span>, align: "right" },
++        { key: "delta", header: "Rating Δ", render: r => <span className={`tabular-nums font-medium ${r.rating_delta > 0 ? "text-brand-500" : r.rating_delta < 0 ? "text-destructive" : "text-muted-foreground"}`}>{r.rating_delta > 0 ? "+" : ""}{r.rating_delta || 0}</span>, align: "right" },
++        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{(r.score ?? 0).toLocaleString()}</span>, align: "right" },
++    ];
++
++    const histCols: Column<ContestRow>[] = [
++        { key: "name", header: "Contest", render: c => <span className="font-medium truncate">{c.name}</span> },
++        { key: "exam", header: "Exam", render: c => <span className="text-xs text-muted-foreground">{c.exam_type}</span> },
++        { key: "date", header: "Starts", render: c => <span className="text-xs text-muted-foreground">{formatDate(c.starts_at)}</span>, align: "right" },
++        { key: "status", header: "Status", render: c => <span className={`text-xs font-medium ${c.status === "finished" ? "text-muted-foreground" : "text-brand-500"}`}>{c.status.replace("_", " ")}</span>, align: "right" },
++    ];
++
++    const selectedContest = finished.find(c => c.id === effSelected);
++
++    return (
++        <>
++            <PageHeading title="Weekly Contest Analytics" description="Assessment cadence, scores and participation." right={<RangeFilter value={range} onChange={setRange} />} />
++
++            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
++                <KpiCard label="Total Contests" value={loading ? "…" : contests.length} icon={<Award className="h-5 w-5" />} />
++                <KpiCard label="Completed" value={loading ? "…" : finished.length} icon={<Trophy className="h-5 w-5" />} accent="blue" />
++                <KpiCard label="Upcoming" value={loading ? "…" : upcoming.length} icon={<TrendingUp className="h-5 w-5" />} accent="purple" />
++                <KpiCard label="This Month" value={loading ? "…" : (byMonth.at(-1)?.count ?? 0)} icon={<Award className="h-5 w-5" />} accent="pink" sub="scheduled" />
++            </div>
++
++            <div className="glass-card p-4 flex flex-wrap items-end gap-3">
++                <div className="flex flex-col gap-1">
++                    <span className="text-xs text-muted-foreground">Inspect contest</span>
++                    <div className="w-72"><CustomSelect value={effSelected} onChange={setSelected} options={finished.length ? finished.map(c => ({ label: c.name, value: c.id })) : [{ label: "No completed contests", value: "" }]} placeholder="Select a contest" /></div>
++                </div>
++                <p className="text-xs text-muted-foreground ml-auto max-w-md">Contest rankings are scoped to your class by the backend, so per-contest detail reflects your own cohort.</p>
++            </div>
++
++            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
++                <KpiCard label="Participants" value={ranking?.total ?? 0} icon={<Users className="h-5 w-5" />} sub={selectedContest?.name} unavailable={!effSelected || (ranking?.total ?? 0) === 0} unavailableReason="No ranking rows for this contest in your class." />
++                <KpiCard label="Average Score" value={scores.length ? Math.round(mean(scores)) : "—"} icon={<Star className="h-5 w-5" />} accent="blue" />
++                <KpiCard label="Median Score" value={scores.length ? Math.round(median(scores)) : "—"} icon={<Medal className="h-5 w-5" />} accent="purple" />
++                <KpiCard label="Highest Score" value={scores.length ? Math.max(...scores) : "—"} icon={<Trophy className="h-5 w-5" />} accent="pink" />
++            </div>
++
++            <LazyMount>
++                <Section title="Cadence & Participation">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Contests / Month">
++                            {loading ? <ChartSkeleton /> : byMonth.length ? <BarChart data={byMonth} color="var(--color-accent-purple)" /> : <EmptyState message="No contests scheduled yet." />}
++                        </Card>
++                        <Card title="Participation Trend" subtitle="Participants per recent contest (your class)">
++                            {loading ? <ChartSkeleton /> : trend && trend.some(t => t.count > 0) ? <BarChart data={trend} labelEvery={Math.max(1, Math.ceil(trend.length / 8))} /> : <UnavailablePill reason="Contest ranking is class-scoped and returned no participants for recent contests." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title={selectedContest ? `Detail · ${selectedContest.name}` : "Contest Detail"}>
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Score Distribution">
++                            {rankingLoading ? <ChartSkeleton /> : scoreDist.length ? <HBarList data={scoreDist} colorByIndex /> : <EmptyState message="No participant scores for this contest." />}
++                        </Card>
++                        <Card title="Leaderboard">
++                            {rankingLoading ? <ChartSkeleton /> : rows.length ? <DataTable columns={rankCols} rows={rows} pageSize={8} searchable searchKeys={r => r.user_name} searchPlaceholder="Search participants…" /> : <UnavailablePill reason="No ranking rows — this contest is outside your class or had no participants." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Contest History">
++                    <Card>
++                        {loading ? <ChartSkeleton height={260} /> : contests.length ? <DataTable columns={histCols} rows={[...contests].sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())} pageSize={10} searchable searchKeys={c => c.name} searchPlaceholder="Search contests…" /> : <EmptyState message="No contests found." />}
++                    </Card>
++                </Section>
++            </LazyMount>
++
++            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
++                <Card title="Completion Rate"><UnavailablePill reason="The ranking exposes attempts & correctness but not per-student start-vs-finish, so a true completion rate isn't derivable." /></Card>
++                <Card title="Leaderboard Changes"><UnavailablePill reason="Requires historical rank snapshots across contests, which aren't stored/exposed." /></Card>
++            </div>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/engagement/page.tsx b/src/app/(dashboard)/analytics/engagement/page.tsx
+new file mode 100644
+index 0000000..d79ff80
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/engagement/page.tsx
+@@ -0,0 +1,67 @@
++"use client";
++
++import { useMemo } from "react";
++import { BellRing, MousePointerClick, MailOpen, PlayCircle, Timer, Clock } from "lucide-react";
++import { hourDistribution } from "@/lib/api/analytics";
++import { useUsers } from "@/components/analytics/data";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount } from "@/components/analytics/primitives";
++import { BarChart } from "@/components/analytics/charts";
++
++export default function EngagementPage() {
++    const { users, loading } = useUsers();
++    const students = useMemo(() => users.filter(u => u.role === "STUDENT"), [users]);
++    const signupHours = useMemo(() => hourDistribution(students).map((count, h) => ({ label: `${h}`, count })), [students]);
++    const peakHour = useMemo(() => {
++        if (!students.length) return null;
++        let best = 0;
++        signupHours.forEach((h, i) => { if (h.count > signupHours[best].count) best = i; });
++        return best;
++    }, [signupHours, students.length]);
++
++    return (
++        <>
++            <PageHeading title="Engagement & Notifications" description="Delivery and session telemetry — mostly outside the current API surface." />
++
++            <div className="glass-card p-4 flex items-start gap-3">
++                <BellRing className="h-5 w-5 text-brand-500 shrink-0 mt-0.5" />
++                <p className="text-sm text-muted-foreground">
++                    The notifications API can <span className="text-foreground font-medium">send</span> broadcasts, but exposes no
++                    delivery, open, or click telemetry, and there is no session/heartbeat endpoint. Those metrics are marked
++                    <span className="text-foreground font-medium"> Data Not Available</span> rather than estimated. The one honest
++                    signal we can derive — new-user sign-up timing — is shown below.
++                </p>
++            </div>
++
++            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
++                <KpiCard label="Notification Opens" value="—" icon={<MailOpen className="h-5 w-5" />} unavailable unavailableReason="No delivery/open telemetry is exposed by the notifications API." />
++                <KpiCard label="Click-through Rate" value="—" icon={<MousePointerClick className="h-5 w-5" />} accent="blue" unavailable unavailableReason="No click tracking on notifications." />
++                <KpiCard label="Session Starts" value="—" icon={<PlayCircle className="h-5 w-5" />} accent="purple" unavailable unavailableReason="No session/analytics events endpoint exists." />
++                <KpiCard label="Avg Session Duration" value="—" icon={<Timer className="h-5 w-5" />} accent="pink" unavailable unavailableReason="No session heartbeat is recorded server-side." />
++                <KpiCard label="Solved After Notification" value="—" icon={<BellRing className="h-5 w-5" />} unavailable unavailableReason="Requires attributing solves to a notification — no such linkage is exposed." />
++                <KpiCard label="Peak Sign-up Hour" value={peakHour !== null ? `${String(peakHour).padStart(2, "0")}:00` : "—"} icon={<Clock className="h-5 w-5" />} accent="blue" sub="IST · registrations" unavailable={students.length === 0} unavailableReason="No registration data." />
++            </div>
++
++            <LazyMount>
++                <Section title="Sign-up Activity" description="When new students register, in IST (a proxy for reachable hours)">
++                    <Card title="New Registrations by Hour of Day">
++                        {loading ? <ChartSkeleton height={220} /> : students.length ? <BarChart data={signupHours} height={220} labelEvery={2} /> : <EmptyState message="No registration data." />}
++                    </Card>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Notification & Session Metrics" description="Not derivable from the current backend">
++                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
++                        {[
++                            { t: "Notification Performance", r: "Broadcasts are fire-and-forget; no per-notification delivery/read stats are returned to admins." },
++                            { t: "Peak Usage Hours", r: "Requires session or per-attempt activity events, which are user-scoped and not exposed admin-wide." },
++                            { t: "Engagement Funnel", r: "No event pipeline (open → session → solve) is exposed to reconstruct a funnel." },
++                        ].map(x => (
++                            <Card key={x.t} title={x.t}><UnavailablePill reason={x.r} /></Card>
++                        ))}
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/layout.tsx b/src/app/(dashboard)/analytics/layout.tsx
+new file mode 100644
+index 0000000..a6c80dc
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/layout.tsx
+@@ -0,0 +1,45 @@
++"use client";
++
++import { useState } from "react";
++import { useSWRConfig } from "swr";
++import { BarChart3, RefreshCw } from "lucide-react";
++import { AnalyticsNav } from "@/components/analytics/nav";
++
++export default function AnalyticsLayout({ children }: { children: React.ReactNode }) {
++    const { mutate } = useSWRConfig();
++    const [refreshing, setRefreshing] = useState(false);
++
++    const refresh = async () => {
++        setRefreshing(true);
++        await mutate(key => typeof key === "string" && key.startsWith("analytics:"), undefined, { revalidate: true });
++        setRefreshing(false);
++    };
++
++    return (
++        <div className="flex flex-col gap-6 pb-12">
++            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
++                <div className="flex items-center gap-3">
++                    <div className="h-11 w-11 rounded-2xl bg-linear-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20">
++                        <BarChart3 className="h-6 w-6 text-white" />
++                    </div>
++                    <div>
++                        <h1 className="text-2xl font-bold tracking-tight text-foreground">Founder Analytics</h1>
++                        <p className="text-muted-foreground text-sm">Product &amp; growth health, derived live from platform data · IST</p>
++                    </div>
++                </div>
++                <button
++                    onClick={refresh}
++                    disabled={refreshing}
++                    className="inline-flex items-center gap-2 rounded-xl glass-card px-4 py-2.5 text-sm font-medium text-foreground hover:border-brand-500/30 transition-all disabled:opacity-60 self-start sm:self-auto"
++                >
++                    <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
++                    Refresh
++                </button>
++            </div>
++
++            <AnalyticsNav />
++
++            <div className="flex flex-col gap-6">{children}</div>
++        </div>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/leaderboards/page.tsx b/src/app/(dashboard)/analytics/leaderboards/page.tsx
+new file mode 100644
+index 0000000..07a8b06
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/leaderboards/page.tsx
+@@ -0,0 +1,152 @@
++"use client";
++
++import { useMemo, useState } from "react";
++import useSWR from "swr";
++import { Swords, Flame, Star, TrendingUp, Award } from "lucide-react";
++import { fetchContestRanking } from "@/lib/api/analytics";
++import { useArena, useContests, useRating, useStreak } from "@/components/analytics/data";
++import { Card, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, DataTable, RankBadge, NameCell, type Column } from "@/components/analytics/primitives";
++
++type Board = "practice" | "contest" | "consistent" | "rated" | "improved";
++
++const TABS: { key: Board; label: string; icon: React.ReactNode }[] = [
++    { key: "practice", label: "Practice", icon: <Swords className="h-4 w-4" /> },
++    { key: "contest", label: "Weekly Contest", icon: <Award className="h-4 w-4" /> },
++    { key: "consistent", label: "Most Consistent", icon: <Flame className="h-4 w-4" /> },
++    { key: "rated", label: "Highest Rated", icon: <Star className="h-4 w-4" /> },
++    { key: "improved", label: "Most Improved", icon: <TrendingUp className="h-4 w-4" /> },
++];
++
++export default function LeaderboardsPage() {
++    const [board, setBoard] = useState<Board>("practice");
++    const { rows: arena, loading: arenaLoading } = useArena(undefined);
++    const { rows: rating, loading: ratingLoading } = useRating();
++    const { rows: streak, loading: streakLoading } = useStreak();
++    const { contests } = useContests();
++
++    const latest = useMemo(
++        () => [...contests].filter(c => c.status === "finished").sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())[0] ?? null,
++        [contests],
++    );
++    const { data: contestRanking, isLoading: contestLoading } = useSWR(
++        latest ? `analytics:contest-ranking:${latest.id}` : null,
++        () => fetchContestRanking(latest!.id),
++        { revalidateOnFocus: false, dedupingInterval: 300_000 },
++    );
++
++    return (
++        <>
++            <PageHeading title="Leaderboards" description="Top students across every ranking dimension." />
++
++            <div className="flex items-center gap-2 overflow-x-auto pb-1">
++                {TABS.map(t => (
++                    <button
++                        key={t.key}
++                        onClick={() => setBoard(t.key)}
++                        className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition-all ${
++                            board === t.key ? "bg-brand-500 text-white shadow-sm shadow-brand-500/20" : "glass-card text-muted-foreground hover:text-foreground"
++                        }`}
++                    >
++                        {t.icon}
++                        {t.label}
++                    </button>
++                ))}
++            </div>
++
++            <Card>
++                {board === "practice" && <PracticeBoard rows={arena} loading={arenaLoading} />}
++                {board === "rated" && <RatedBoard rows={rating} loading={ratingLoading} />}
++                {board === "consistent" && <ConsistentBoard rows={streak} loading={streakLoading} />}
++                {board === "contest" && <ContestBoard rows={contestRanking?.rows ?? []} loading={contestLoading} contestName={latest?.name} hasContest={Boolean(latest)} />}
++                {board === "improved" && <ImprovedBoard rows={contestRanking?.rows ?? []} loading={contestLoading} contestName={latest?.name} hasContest={Boolean(latest)} />}
++            </Card>
++        </>
++    );
++}
++
++function BoardHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
++    return (
++        <div className="flex items-center gap-3 mb-4">
++            <div className="p-2 rounded-xl bg-brand-500/10 text-brand-500 border border-brand-500/20">{icon}</div>
++            <div>
++                <h3 className="font-semibold text-foreground">{title}</h3>
++                <p className="text-xs text-muted-foreground">{subtitle}</p>
++            </div>
++        </div>
++    );
++}
++
++function PracticeBoard({ rows, loading }: { rows: { user_name: string; questions_solved: number }[]; loading: boolean }) {
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{(r.questions_solved ?? 0).toLocaleString()}</span>, align: "right" },
++    ];
++    return (
++        <>
++            <BoardHeader icon={<Swords className="h-5 w-5" />} title="Practice Leaderboard" subtitle="All-time problems solved in the arena" />
++            {loading ? <ChartSkeleton height={300} /> : rows.length ? <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={15} /> : <EmptyState message="Arena ranking returned no rows." />}
++        </>
++    );
++}
++
++function RatedBoard({ rows, loading }: { rows: { user_name: string; current_rating: number; max_rating: number; title: string }[]; loading: boolean }) {
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "title", header: "Title", render: r => <span className="text-xs text-muted-foreground">{r.title || "—"}</span> },
++        { key: "peak", header: "Peak", render: r => <span className="text-muted-foreground tabular-nums">{(r.max_rating ?? 0).toLocaleString()}</span>, align: "right" },
++        { key: "rating", header: "Rating", render: r => <span className="font-bold tabular-nums">{(r.current_rating ?? 0).toLocaleString()}</span>, align: "right" },
++    ];
++    return (
++        <>
++            <BoardHeader icon={<Star className="h-5 w-5" />} title="Highest Rated" subtitle="Top competitive ratings" />
++            {loading ? <ChartSkeleton height={300} /> : rows.length ? <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={15} /> : <EmptyState message="Rating ranking returned no rows." />}
++        </>
++    );
++}
++
++function ConsistentBoard({ rows, loading }: { rows: { user_name: string; streak_count: number }[]; loading: boolean }) {
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{(r.streak_count ?? 0).toLocaleString()} days</span>, align: "right" },
++    ];
++    return (
++        <>
++            <BoardHeader icon={<Flame className="h-5 w-5" />} title="Most Consistent" subtitle="Longest active study streaks" />
++            {loading ? <ChartSkeleton height={300} /> : rows.length ? <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={15} /> : <EmptyState message="Streak ranking returned no rows." />}
++        </>
++    );
++}
++
++function ContestBoard({ rows, loading, contestName, hasContest }: { rows: { user_name: string; score: number; rank: number; accuracy: number }[]; loading: boolean; contestName?: string; hasContest: boolean }) {
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: r => <RankBadge rank={r.rank} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "acc", header: "Accuracy", render: r => <span className="text-muted-foreground tabular-nums">{Math.round((r.accuracy || 0) * 100)}%</span>, align: "right" },
++        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{(r.score ?? 0).toLocaleString()}</span>, align: "right" },
++    ];
++    return (
++        <>
++            <BoardHeader icon={<Award className="h-5 w-5" />} title="Weekly Contest" subtitle={contestName ? `Latest: ${contestName} (your class)` : "Latest finished contest"} />
++            {!hasContest ? <EmptyState message="No completed contests yet." /> : loading ? <ChartSkeleton height={300} /> : rows.length ? <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search participants…" pageSize={15} /> : <UnavailablePill reason="Contest ranking is class-scoped and returned no rows for the latest contest." />}
++        </>
++    );
++}
++
++function ImprovedBoard({ rows, loading, contestName, hasContest }: { rows: { user_name: string; rating_delta: number; rating_after: number }[]; loading: boolean; contestName?: string; hasContest: boolean }) {
++    const sorted = useMemo(() => [...rows].filter(r => r.rating_delta !== 0).sort((a, b) => b.rating_delta - a.rating_delta), [rows]);
++    const cols: Column<(typeof sorted)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "after", header: "New Rating", render: r => <span className="text-muted-foreground tabular-nums">{(r.rating_after ?? 0).toLocaleString()}</span>, align: "right" },
++        { key: "delta", header: "Gain", render: r => <span className={`font-bold tabular-nums ${r.rating_delta > 0 ? "text-brand-500" : "text-destructive"}`}>{r.rating_delta > 0 ? "+" : ""}{r.rating_delta}</span>, align: "right" },
++    ];
++    return (
++        <>
++            <BoardHeader icon={<TrendingUp className="h-5 w-5" />} title="Most Improved" subtitle={contestName ? `Rating gains from ${contestName}` : "Biggest rating gains"} />
++            {!hasContest ? <EmptyState message="No completed contests yet." /> : loading ? <ChartSkeleton height={300} /> : sorted.length ? <DataTable columns={cols} rows={sorted} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={15} /> : <UnavailablePill reason="No rating changes available (contest ranking is class-scoped)." />}
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/page.tsx b/src/app/(dashboard)/analytics/page.tsx
+index 99f3129..1ef18f2 100644
+--- a/src/app/(dashboard)/analytics/page.tsx
++++ b/src/app/(dashboard)/analytics/page.tsx
+@@ -1,97 +1,150 @@
+ "use client";
+ 
+-import { useMemo, useState } from "react";
+-import { useSWRConfig } from "swr";
+-import { BarChart3, RefreshCw } from "lucide-react";
+-import { EMPTY_FILTERS, FilterBar, type Filters } from "@/components/analytics/filters";
+-import { Overview } from "@/components/analytics/overview";
++import { useEffect, useMemo } from "react";
++import { Users, UserPlus, Sun, CalendarDays, CalendarRange, CheckCircle2, Divide, Flame, Award, Activity } from "lucide-react";
+ import {
+-    ActivitySection,
+-    ContestSection,
+-    DemographicsSection,
+-    GrowthSection,
+-    ProblemSolvingSection,
+-    RatingSection,
+-    RetentionSection,
+-    StreakSection,
+-} from "@/components/analytics/sections";
++    registrationSeries,
++    saveSnapshot,
++    snapshotDelta,
++    snapshotSeries,
++    istParts,
++    fetchContestRanking,
++} from "@/lib/api/analytics";
++import useSWR from "swr";
++import { useArena, useContests, useStreak, useTopPerformers, useUsers } from "@/components/analytics/data";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading } from "@/components/analytics/primitives";
++import { AreaChart } from "@/components/analytics/charts";
+ import { LazyMount } from "@/components/analytics/primitives";
+-import { useClasses, useUsers } from "@/components/analytics/data";
++import { formatDate } from "@/lib/datetime";
+ 
+-export default function AnalyticsPage() {
+-    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+-    const { mutate } = useSWRConfig();
+-    const [refreshing, setRefreshing] = useState(false);
++export default function OverviewPage() {
++    const { users, loading: usersLoading } = useUsers();
++    const { rows: daily, loading: dailyLoading } = useArena("daily");
++    const { rows: weekly } = useArena("weekly");
++    const { rows: streak } = useStreak();
++    const { top } = useTopPerformers();
++    const { contests } = useContests();
+ 
+-    const { users } = useUsers();
+-    const { classes } = useClasses();
++    const students = useMemo(() => users.filter(u => u.role === "STUDENT"), [users]);
+ 
+-    const classOptions = useMemo(() => classes.map(c => ({ label: c.name, value: c.id })), [classes]);
+-    const batchOptions = useMemo(() => {
+-        const set = new Set<string>();
+-        for (const u of users) if (u.batch) set.add(u.batch);
+-        return [...set].sort().map(b => ({ label: b, value: b }));
+-    }, [users]);
++    const series = useMemo(() => registrationSeries(students), [students]);
++    const new7d = useMemo(() => series.slice(-7).reduce((a, b) => a + b.count, 0), [series]);
+ 
+-    const refresh = async () => {
+-        setRefreshing(true);
+-        // Revalidate every analytics SWR key.
+-        await mutate(key => typeof key === "string" && key.startsWith("analytics:"), undefined, { revalidate: true });
+-        setRefreshing(false);
+-    };
++    const dau = daily.length;
++    const wau = weekly.length;
++    const problemsToday = daily.reduce((a, r) => a + (r.questions_solved || 0), 0);
++    const avgPerUser = dau > 0 ? problemsToday / dau : 0;
++    const activeStreaks = streak.filter(s => s.streak_count > 0).length;
+ 
+-    return (
+-        <div className="flex flex-col gap-8 pb-10">
+-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+-                <div className="flex items-center gap-3">
+-                    <div className="h-11 w-11 rounded-2xl bg-linear-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20">
+-                        <BarChart3 className="h-6 w-6 text-white" />
+-                    </div>
+-                    <div>
+-                        <h1 className="text-3xl font-bold tracking-tight text-foreground">Founder Analytics</h1>
+-                        <p className="text-muted-foreground text-sm">
+-                            Product & growth health, derived live from platform data. All times in IST.
+-                        </p>
+-                    </div>
+-                </div>
+-                <button
+-                    onClick={refresh}
+-                    disabled={refreshing}
+-                    className="inline-flex items-center gap-2 rounded-xl glass-card px-4 py-2.5 text-sm font-medium text-foreground hover:border-brand-500/30 transition-all disabled:opacity-60"
+-                >
+-                    <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+-                    Refresh
+-                </button>
+-            </div>
++    // Latest finished contest → weekly contest participation (class-scoped by backend).
++    const latestContest = useMemo(
++        () =>
++            [...contests]
++                .filter(c => c.status === "finished")
++                .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())[0] ?? null,
++        [contests],
++    );
++    const { data: contestRanking } = useSWR(
++        latestContest ? `analytics:contest-ranking:${latestContest.id}` : null,
++        () => fetchContestRanking(latestContest!.id),
++        { revalidateOnFocus: false, dedupingInterval: 300_000 },
++    );
++    const contestParticipation = contestRanking?.total ?? 0;
+ 
+-            <FilterBar filters={filters} onChange={setFilters} classOptions={classOptions} batchOptions={batchOptions} />
++    // Snapshot the global KPIs daily → real day-over-day deltas & sparklines.
++    useEffect(() => {
++        if (usersLoading) return;
++        saveSnapshot({ dau, wau, problemsToday, students: students.length, activeStreaks });
++    }, [usersLoading, dau, wau, problemsToday, students.length, activeStreaks]);
+ 
+-            <Overview filters={filters} />
++    const recent = useMemo(
++        () =>
++            [...students]
++                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
++                .slice(0, 8),
++        [students],
++    );
++
++    return (
++        <>
++            <PageHeading title="Overview" description="Executive summary — the health metrics that matter most, at a glance." />
++
++            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
++                <KpiCard label="DAU" value={dau} icon={<Sun className="h-5 w-5" />} sub={dau >= 100 ? "top 100 (capped)" : "active today"} delta={snapshotDelta("dau", dau)} spark={snapshotSeries("dau")} unavailable={!dailyLoading && daily.length === 0} unavailableReason="No arena activity today yet." />
++                <KpiCard label="WAU" value={wau} icon={<CalendarRange className="h-5 w-5" />} accent="blue" sub={wau >= 100 ? "top 100 (capped)" : "active this week"} delta={snapshotDelta("wau", wau)} spark={snapshotSeries("wau")} unavailable={weekly.length === 0} unavailableReason="No weekly arena activity." />
++                <KpiCard label="MAU" value="—" icon={<CalendarDays className="h-5 w-5" />} accent="purple" unavailable unavailableReason="Arena exposes only daily & weekly windows — no monthly active feed." />
++                <KpiCard label="New Users (7d)" value={new7d} icon={<UserPlus className="h-5 w-5" />} sub="recent sign-ups" />
++                <KpiCard label="Problems Solved Today" value={problemsToday} icon={<CheckCircle2 className="h-5 w-5" />} accent="pink" sub={dau >= 100 ? "among top 100" : "all solvers"} delta={snapshotDelta("problemsToday", problemsToday)} spark={snapshotSeries("problemsToday")} unavailable={!dailyLoading && daily.length === 0} unavailableReason="Derived from today's arena ranking." />
++                <KpiCard label="Avg Problems / User" value={avgPerUser ? avgPerUser.toFixed(1) : "—"} icon={<Divide className="h-5 w-5" />} sub="per active solver today" unavailable={dau === 0} unavailableReason="No active solvers today." />
++                <KpiCard label="Active Streaks" value={activeStreaks} icon={<Flame className="h-5 w-5" />} accent="pink" sub="students on a streak" delta={snapshotDelta("activeStreaks", activeStreaks)} unavailable={streak.length === 0} unavailableReason="Streak ranking returned no rows." />
++                <KpiCard label="Total Students" value={students.length} icon={<Users className="h-5 w-5" />} delta={snapshotDelta("students", students.length)} spark={snapshotSeries("students")} sub="registered" />
++                <KpiCard label="POTD Participation" value="—" icon={<CalendarDays className="h-5 w-5" />} accent="purple" unavailable unavailableReason="Per-student POTD attempts aren't exposed admin-wide. See POTD tab." />
++                <KpiCard label="Weekly Contest" value={latestContest ? contestParticipation : "—"} icon={<Award className="h-5 w-5" />} accent="blue" sub={latestContest ? "participants (your class)" : undefined} unavailable={!latestContest || contestParticipation === 0} unavailableReason="Contest ranking is class-scoped; see Contests tab." />
++            </div>
+ 
+             <LazyMount>
+-                <GrowthSection filters={filters} />
+-            </LazyMount>
+-            <LazyMount>
+-                <ProblemSolvingSection filters={filters} />
+-            </LazyMount>
+-            <LazyMount>
+-                <RatingSection filters={filters} />
+-            </LazyMount>
+-            <LazyMount>
+-                <StreakSection filters={filters} />
+-            </LazyMount>
+-            <LazyMount>
+-                <ContestSection />
+-            </LazyMount>
+-            <LazyMount>
+-                <DemographicsSection filters={filters} />
+-            </LazyMount>
+-            <LazyMount>
+-                <ActivitySection filters={filters} />
++                <Section title="Growth Trend" description="Cumulative student registrations (IST)" icon={<Activity className="h-5 w-5" />}>
++                    <Card>
++                        {usersLoading ? (
++                            <ChartSkeleton height={220} />
++                        ) : series.length >= 2 ? (
++                            <AreaChart points={series.map(p => p.cumulative)} labels={series.map(p => p.date.slice(5))} height={220} />
++                        ) : (
++                            <EmptyState message="Not enough registration history to plot growth." />
++                        )}
++                    </Card>
++                </Section>
+             </LazyMount>
++
+             <LazyMount>
+-                <RetentionSection />
++                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                    <Card title="Recent Registrations" subtitle="Newest students to join">
++                        {usersLoading ? (
++                            <ChartSkeleton height={260} />
++                        ) : recent.length ? (
++                            <div className="flex flex-col divide-y divide-(--border)">
++                                {recent.map(u => {
++                                    const p = istParts(u.created_at);
++                                    return (
++                                        <div key={u.id} className="flex items-center gap-3 py-2.5">
++                                            <div className="h-8 w-8 shrink-0 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-600 dark:text-brand-400 font-bold border border-brand-500/20 text-xs">
++                                                {u.name?.[0]?.toUpperCase() || "?"}
++                                            </div>
++                                            <span className="flex-1 min-w-0 truncate text-sm font-medium text-foreground">{u.name || "Unknown"}</span>
++                                            <span className="text-xs text-muted-foreground">{formatDate(u.created_at)}{p ? `, ${String(p.hour).padStart(2, "0")}:00` : ""}</span>
++                                        </div>
++                                    );
++                                })}
++                            </div>
++                        ) : (
++                            <EmptyState message="No registrations yet." />
++                        )}
++                    </Card>
++
++                    <Card title="Top Performers" subtitle="Across competitive metrics">
++                        <div className="flex flex-col gap-3">
++                            <PerfRow label="Best Rating" name={top?.best_rating?.user?.name || top?.best_rating?.user?.user_name} value={top?.best_rating?.metric_value} suffix="rating" />
++                            <PerfRow label="Most Solved" name={top?.best_questions?.user?.name || top?.best_questions?.user?.user_name} value={top?.best_questions?.metric_value} suffix="solved" />
++                            <PerfRow label="Biggest Rating Gain" name={top?.best_delta?.user?.name || top?.best_delta?.user?.user_name} value={top?.best_delta?.metric_value} suffix="Δ" />
++                        </div>
++                    </Card>
++                </div>
+             </LazyMount>
++        </>
++    );
++}
++
++function PerfRow({ label, name, value, suffix }: { label: string; name?: string; value?: number; suffix: string }) {
++    return (
++        <div className="flex items-center gap-3">
++            <div className="p-2 rounded-lg bg-foreground/5 border border-(--card-border)">
++                <Award className="h-4 w-4 text-brand-500" />
++            </div>
++            <div className="min-w-0 flex-1">
++                <p className="text-xs text-muted-foreground">{label}</p>
++                <p className="text-sm font-semibold text-foreground truncate">{name || "—"}</p>
++            </div>
++            <span className="text-sm font-bold text-foreground tabular-nums">{value !== undefined ? `${value.toLocaleString()} ${suffix}` : "—"}</span>
+         </div>
+     );
+ }
+diff --git a/src/app/(dashboard)/analytics/potd/page.tsx b/src/app/(dashboard)/analytics/potd/page.tsx
+new file mode 100644
+index 0000000..536a991
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/potd/page.tsx
+@@ -0,0 +1,93 @@
++"use client";
++
++import { useMemo, useState } from "react";
++import { CalendarClock, ListChecks, Users, Percent, Timer } from "lucide-react";
++import { istTodayKey } from "@/lib/api/analytics";
++import { useClasses, useQotdEligible, useQotdHistory, useQotdSchedule } from "@/components/analytics/data";
++import { RangeFilter, defaultRange, rangeLabel, type Range } from "@/components/analytics/range";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount } from "@/components/analytics/primitives";
++import { BarChart } from "@/components/analytics/charts";
++import { CustomSelect } from "@/components/ui/custom-select";
++import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
++
++export default function PotdAnalyticsPage() {
++    const [range, setRange] = useState<Range>(defaultRange);
++    const { classes } = useClasses();
++    const [classSel, setClassSel] = useState("");
++    const [examSel, setExamSel] = useState("");
++
++    // Default the selectors (latest class / first exam) via derived values rather
++    // than syncing state through an effect.
++    const classId = classSel || (classes[0]?.id ?? "");
++    const exam = examSel || EXAM_TYPE_OPTIONS[0].value;
++
++    const today = istTodayKey();
++    const { schedule: todaySchedule, loading: todayLoading } = useQotdSchedule(today, classId, exam);
++    const { total: eligible, loading: eligibleLoading } = useQotdEligible(exam);
++    const { history, loading: histLoading } = useQotdHistory(classId, exam, range.from, range.to);
++
++    const scheduledDays = history.filter(h => h.scheduled).length;
++    const coverage = history.length ? Math.round((scheduledDays / history.length) * 100) : 0;
++    const histBars = useMemo(() => history.map(h => ({ label: h.date.slice(5), count: h.questionCount })), [history]);
++
++    const classOptions = [{ label: "Select class", value: "" }, ...classes.map(c => ({ label: c.name, value: c.id }))];
++    const ready = classId && exam;
++
++    return (
++        <>
++            <PageHeading title="POTD Analytics" description="Problem of the Day — scheduling coverage and participation." right={<RangeFilter value={range} onChange={setRange} />} />
++
++            <div className="glass-card p-4 flex flex-wrap items-end gap-3">
++                <div className="flex flex-col gap-1">
++                    <span className="text-xs text-muted-foreground">Class</span>
++                    <div className="w-44"><CustomSelect value={classId} onChange={setClassSel} options={classOptions} placeholder="Select class" /></div>
++                </div>
++                <div className="flex flex-col gap-1">
++                    <span className="text-xs text-muted-foreground">Exam</span>
++                    <div className="w-44"><CustomSelect value={exam} onChange={setExamSel} options={EXAM_TYPE_OPTIONS} placeholder="Select exam" /></div>
++                </div>
++                <p className="text-xs text-muted-foreground ml-auto max-w-md">POTD schedules are keyed by class + exam, so pick a cohort to inspect. Per-student POTD attempts aren&apos;t exposed admin-wide.</p>
++            </div>
++
++            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
++                <KpiCard label="Scheduled Today" value={ready ? (todaySchedule?.question_ids.length ?? 0) : "—"} icon={<ListChecks className="h-5 w-5" />} sub={ready ? (todaySchedule?.id ? "questions set" : "none scheduled") : "select a cohort"} unavailable={ready ? !todayLoading && !todaySchedule?.id : true} unavailableReason={ready ? "No POTD scheduled for today." : "Pick a class + exam above."} />
++                <KpiCard label={`Coverage · ${rangeLabel(range)}`} value={ready ? `${coverage}%` : "—"} icon={<Percent className="h-5 w-5" />} accent="blue" sub={ready ? `${scheduledDays}/${history.length} days scheduled` : undefined} unavailable={!ready} unavailableReason="Pick a class + exam above." />
++                <KpiCard label="Eligible Pool" value={ready ? eligible : "—"} icon={<CalendarClock className="h-5 w-5" />} accent="purple" sub="POTD-eligible questions" unavailable={ready ? !eligibleLoading && eligible === 0 : true} unavailableReason={ready ? "No eligible questions for this exam." : "Pick a class + exam above."} />
++                <KpiCard label="Today's Solvers" value="—" icon={<Users className="h-5 w-5" />} unavailable unavailableReason="Per-student POTD attempts aren't exposed to admins." />
++                <KpiCard label="Participation Rate" value="—" icon={<Percent className="h-5 w-5" />} accent="pink" unavailable unavailableReason="Needs solver counts, which aren't derivable admin-wide." />
++                <KpiCard label="Avg Solving Time" value="—" icon={<Timer className="h-5 w-5" />} unavailable unavailableReason="No per-attempt timing endpoint exists." />
++            </div>
++
++            <LazyMount>
++                <Section title="Scheduling History" description="POTD questions scheduled per day for the selected cohort">
++                    <Card title={`Questions Scheduled · ${rangeLabel(range)}`}>
++                        {!ready ? (
++                            <EmptyState message="Select a class and exam to see POTD scheduling history." />
++                        ) : histLoading ? (
++                            <ChartSkeleton height={220} />
++                        ) : histBars.some(b => b.count > 0) ? (
++                            <BarChart data={histBars} height={220} labelEvery={Math.max(1, Math.ceil(histBars.length / 12))} color="var(--color-brand-500)" />
++                        ) : (
++                            <EmptyState message="No POTD scheduled in this range for the selected cohort." />
++                        )}
++                    </Card>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Participation & Consistency" description="Not derivable — POTD attempts are user-scoped">
++                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
++                        {[
++                            { t: "Correct vs Incorrect", r: "Per-attempt correctness isn't exposed admin-wide." },
++                            { t: "Solve Timeline (hourly)", r: "No admin-wide per-attempt timestamps to bucket by hour." },
++                            { t: "Most Consistent Solvers", r: "Requires per-student POTD solve history, which isn't exposed." },
++                            { t: "POTD Streak Analytics", r: "The streak endpoint tracks overall study streaks, not POTD-specific streaks." },
++                        ].map(x => (
++                            <Card key={x.t} title={x.t}><UnavailablePill reason={x.r} /></Card>
++                        ))}
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/problem-solving/page.tsx b/src/app/(dashboard)/analytics/problem-solving/page.tsx
+new file mode 100644
+index 0000000..8102e48
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/problem-solving/page.tsx
+@@ -0,0 +1,92 @@
++"use client";
++
++import { useMemo, useState } from "react";
++import { Swords, CheckCircle2, Divide, Trophy } from "lucide-react";
++import { bucketize } from "@/lib/api/analytics";
++import { useArena, useBankExamDistribution, useDifficultyDistribution } from "@/components/analytics/data";
++import { RangeFilter, defaultRange, rangeLabel, rangeToTimeFilter, type Range } from "@/components/analytics/range";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount, DataTable, RankBadge, NameCell, type Column } from "@/components/analytics/primitives";
++import { HBarList, DonutChart } from "@/components/analytics/charts";
++import { formatExamType } from "@/lib/exam-types";
++
++export default function ProblemSolvingPage() {
++    const [range, setRange] = useState<Range>(defaultRange);
++    const tf = rangeToTimeFilter(range);
++    const { rows, loading } = useArena(tf);
++    const { dist: difficulty, loading: diffLoading } = useDifficultyDistribution();
++    const { dist: byExam, loading: examLoading } = useBankExamDistribution();
++
++    const solved = rows.map(r => r.questions_solved);
++    const totalSolved = solved.reduce((a, b) => a + b, 0);
++    const solvers = rows.length;
++
++    const dist = useMemo(
++        () =>
++            bucketize(solved, [
++                { label: "1–10", min: 1, max: 10 },
++                { label: "11–50", min: 11, max: 50 },
++                { label: "51–100", min: 51, max: 100 },
++                { label: "101–250", min: 101, max: 250 },
++                { label: "251–500", min: 251, max: 500 },
++                { label: "500+", min: 501 },
++            ]),
++        [solved],
++    );
++
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{(r.questions_solved ?? 0).toLocaleString()}</span>, align: "right" },
++    ];
++
++    const windowNote = tf ? `arena ${tf} window` : "arena all-time";
++
++    return (
++        <>
++            <PageHeading title="Problem Solving" description="Practice depth and solver activity in the arena." right={<RangeFilter value={range} onChange={setRange} />} />
++
++            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
++                <KpiCard label="Problems Solved" value={totalSolved} icon={<CheckCircle2 className="h-5 w-5" />} sub={windowNote} unavailable={!loading && rows.length === 0} unavailableReason="Arena ranking returned no rows for this window." />
++                <KpiCard label="Active Solvers" value={solvers} icon={<Swords className="h-5 w-5" />} accent="purple" sub={solvers >= 100 ? "top 100 (capped)" : rangeLabel(range)} />
++                <KpiCard label="Avg / Solver" value={solvers ? (totalSolved / solvers).toFixed(1) : "—"} icon={<Divide className="h-5 w-5" />} accent="blue" sub="problems per solver" />
++                <KpiCard label="Top Solver" value={solved.length ? Math.max(...solved) : "—"} icon={<Trophy className="h-5 w-5" />} accent="pink" sub="most solved" />
++            </div>
++
++            <LazyMount>
++                <Section title="Distribution & Leaders">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Solved-Count Distribution" subtitle="How deep solvers have gone">
++                            {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="No solver data for this window." />}
++                        </Card>
++                        <Card title="Top Solvers">
++                            {loading ? <ChartSkeleton /> : rows.length ? <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" /> : <EmptyState message="No solver data for this window." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Question Bank Composition" description="Difficulty & exam mix of the practice pool (not solve counts)">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Difficulty Distribution" subtitle="Questions in the bank">
++                            {diffLoading ? <ChartSkeleton /> : difficulty.some(d => d.count > 0) ? <HBarList data={difficulty} colorByIndex /> : <EmptyState message="No question-bank data." />}
++                        </Card>
++                        <Card title="By Exam Track" subtitle="Questions in the bank">
++                            {examLoading ? <ChartSkeleton /> : byExam.length ? <DonutChart data={byExam.map(b => ({ label: formatExamType(b.label), count: b.count }))} /> : <EmptyState message="No question-bank data." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Solve-Time & Accuracy" description="Not derivable — per-attempt data is user-scoped">
++                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
++                        <Card title="Most Active Hours"><UnavailablePill reason="Per-attempt timestamps are only exposed to the attempting user, so an admin-wide solve-by-hour feed isn't derivable." /></Card>
++                        <Card title="Most Active Days"><UnavailablePill reason="Same as above — no admin-wide per-attempt feed to bucket by weekday." /></Card>
++                        <Card title="Accuracy"><UnavailablePill reason="Correct/incorrect per attempt isn't exposed admin-wide (only per-user study stats)." /></Card>
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/streaks/page.tsx b/src/app/(dashboard)/analytics/streaks/page.tsx
+new file mode 100644
+index 0000000..c8f76cd
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/streaks/page.tsx
+@@ -0,0 +1,96 @@
++"use client";
++
++import { useEffect, useMemo } from "react";
++import { Flame, Users, TrendingUp, Trophy, Gauge } from "lucide-react";
++import { bucketize, mean, median, saveSnapshot, snapshotDelta, snapshotSeries } from "@/lib/api/analytics";
++import { useStreak } from "@/components/analytics/data";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount, DataTable, RankBadge, NameCell, type Column } from "@/components/analytics/primitives";
++import { HBarList } from "@/components/analytics/charts";
++
++export default function StreaksAnalyticsPage() {
++    const { rows, loading } = useStreak();
++    const counts = rows.map(r => r.streak_count);
++    const active = rows.filter(r => r.streak_count > 0).length;
++    const avg = counts.length ? Math.round(mean(counts)) : 0;
++    const longest = counts.length ? Math.max(...counts) : 0;
++
++    useEffect(() => {
++        if (loading) return;
++        saveSnapshot({ activeStreaks: active, avgStreak: avg, longestStreak: longest });
++    }, [loading, active, avg, longest]);
++
++    const dist = useMemo(
++        () =>
++            bucketize(counts, [
++                { label: "1–2 days", min: 1, max: 2 },
++                { label: "3–6 days", min: 3, max: 6 },
++                { label: "1–2 weeks", min: 7, max: 14 },
++                { label: "2–4 weeks", min: 15, max: 30 },
++                { label: "1–3 months", min: 31, max: 90 },
++                { label: "3 months+", min: 91 },
++            ]),
++        [counts],
++    );
++
++    const cols: Column<(typeof rows)[number]>[] = [
++        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
++        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
++        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{(r.streak_count ?? 0).toLocaleString()} days</span>, align: "right" },
++    ];
++
++    return (
++        <>
++            <PageHeading title="Streak Analytics" description="Daily-habit consistency across the student base." />
++
++            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
++                <KpiCard label="Active Streak Holders" value={active} icon={<Flame className="h-5 w-5" />} sub="students on a streak" delta={snapshotDelta("activeStreaks", active)} spark={snapshotSeries("activeStreaks")} unavailable={rows.length === 0} unavailableReason="Streak ranking returned no rows." />
++                <KpiCard label="Average Streak" value={avg} icon={<Gauge className="h-5 w-5" />} accent="blue" sub="days" delta={snapshotDelta("avgStreak", avg)} spark={snapshotSeries("avgStreak")} />
++                <KpiCard label="Longest Streak" value={longest} icon={<Trophy className="h-5 w-5" />} accent="pink" sub="days" delta={snapshotDelta("longestStreak", longest)} />
++                <KpiCard label="Median Streak" value={counts.length ? Math.round(median(counts)) : "—"} icon={<Users className="h-5 w-5" />} accent="purple" sub="days" />
++            </div>
++
++            <LazyMount>
++                <Section title="Distribution & Leaders">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Streak Distribution">
++                            {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="Streak ranking returned no rows." />}
++                        </Card>
++                        <Card title="Longest Streaks">
++                            {loading ? <ChartSkeleton /> : rows.length ? <DataTable columns={cols} rows={rows} pageSize={8} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" /> : <EmptyState message="Streak ranking returned no rows." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Trends & Risk" description="Growth builds from daily snapshots; risk needs last-activity data">
++                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
++                        <Card title="Streak Growth">
++                            {snapshotSeries("activeStreaks").length >= 2 ? (
++                                <div className="flex flex-col gap-2">
++                                    <p className="text-sm text-muted-foreground">Active streak holders, day over day.</p>
++                                    <HBarList data={snapshotSeries("activeStreaks").slice(-7).map((v, i) => ({ label: `Day ${i + 1}`, count: v }))} />
++                                </div>
++                            ) : (
++                                <UnavailablePill reason="Trend builds over time — snapshots accrue one point per day." />
++                            )}
++                        </Card>
++                        <Card title="Daily Streak Changes">
++                            <div className="flex items-center gap-2 text-sm">
++                                <TrendingUp className="h-4 w-4 text-brand-500" />
++                                {snapshotDelta("activeStreaks", active).available ? (
++                                    <span className="text-foreground font-medium">{snapshotDelta("activeStreaks", active).value >= 0 ? "+" : ""}{snapshotDelta("activeStreaks", active).value} active vs prev day</span>
++                                ) : (
++                                    <span className="text-muted-foreground">Builds after a day of history.</span>
++                                )}
++                            </div>
++                        </Card>
++                        <Card title="Close to Losing Streak">
++                            <UnavailablePill reason="The streak ranking doesn't expose each student's last-activity date, so at-risk streaks can't be identified." />
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/topics/page.tsx b/src/app/(dashboard)/analytics/topics/page.tsx
+new file mode 100644
+index 0000000..a0c2491
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/topics/page.tsx
+@@ -0,0 +1,64 @@
++"use client";
++
++import { Layers, BookOpen } from "lucide-react";
++import { useBankExamDistribution, useDifficultyDistribution } from "@/components/analytics/data";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount } from "@/components/analytics/primitives";
++import { HBarList, DonutChart } from "@/components/analytics/charts";
++import { formatExamType } from "@/lib/exam-types";
++
++export default function TopicsPage() {
++    const { dist: difficulty, loading: diffLoading } = useDifficultyDistribution();
++    const { dist: byExam, loading: examLoading } = useBankExamDistribution();
++
++    const totalBank = difficulty.reduce((a, b) => a + b.count, 0);
++
++    return (
++        <>
++            <PageHeading title="Topic Analytics" description="Question-bank composition. Per-topic solve/accuracy needs data the API doesn't expose." />
++
++            <div className="glass-card p-4 flex items-start gap-3">
++                <Layers className="h-5 w-5 text-brand-500 shrink-0 mt-0.5" />
++                <p className="text-sm text-muted-foreground">
++                    The API exposes the <span className="text-foreground font-medium">question bank</span> (by difficulty and exam),
++                    but per-attempt solves are user-scoped — so <span className="text-foreground font-medium">most-solved</span>,
++                    <span className="text-foreground font-medium"> topic accuracy</span> and topic heatmaps aren&apos;t derivable
++                    admin-wide. What the bank supports is shown below; the rest is marked honestly.
++                </p>
++            </div>
++
++            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
++                <KpiCard label="Bank Size" value={diffLoading ? "…" : totalBank} icon={<BookOpen className="h-5 w-5" />} sub="total questions" unavailable={!diffLoading && totalBank === 0} unavailableReason="Question bank returned no rows." />
++                <KpiCard label="Easy" value={diffLoading ? "…" : (difficulty.find(d => d.label === "Easy")?.count ?? 0)} icon={<Layers className="h-5 w-5" />} accent="blue" />
++                <KpiCard label="Medium" value={diffLoading ? "…" : (difficulty.find(d => d.label === "Medium")?.count ?? 0)} icon={<Layers className="h-5 w-5" />} accent="purple" />
++                <KpiCard label="Hard" value={diffLoading ? "…" : (difficulty.find(d => d.label === "Hard")?.count ?? 0)} icon={<Layers className="h-5 w-5" />} accent="pink" />
++            </div>
++
++            <LazyMount>
++                <Section title="Question Bank Composition" description="What the practice pool is made of">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="By Difficulty">
++                            {diffLoading ? <ChartSkeleton /> : difficulty.some(d => d.count > 0) ? <HBarList data={difficulty} colorByIndex /> : <EmptyState message="No question-bank data." />}
++                        </Card>
++                        <Card title="By Exam Track">
++                            {examLoading ? <ChartSkeleton /> : byExam.length ? <DonutChart data={byExam.map(b => ({ label: formatExamType(b.label), count: b.count }))} /> : <EmptyState message="No question-bank data." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Topic Performance" description="Not derivable — per-topic solves & accuracy are user-scoped">
++                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
++                        {[
++                            { t: "Most / Least Solved Topics", r: "Per-topic solve counts aren't exposed admin-wide (attempts are scoped to each user)." },
++                            { t: "Strongest / Weakest Topics", r: "Requires per-topic accuracy across students, which no endpoint returns." },
++                            { t: "Topic Heatmap & Accuracy", r: "No admin-wide topic-level performance feed exists to build a heatmap from." },
++                        ].map(x => (
++                            <Card key={x.t} title={x.t}><UnavailablePill reason={x.r} /></Card>
++                        ))}
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/app/(dashboard)/analytics/users/page.tsx b/src/app/(dashboard)/analytics/users/page.tsx
+new file mode 100644
+index 0000000..3c62fa7
+--- /dev/null
++++ b/src/app/(dashboard)/analytics/users/page.tsx
+@@ -0,0 +1,108 @@
++"use client";
++
++import { useMemo, useState } from "react";
++import { Sun, CalendarRange, CalendarDays, UserPlus, Users as UsersIcon, Repeat } from "lucide-react";
++import {
++    registrationSeries,
++    hourDistribution,
++    weekdayDistribution,
++    istParts,
++} from "@/lib/api/analytics";
++import { useArena, useUsers } from "@/components/analytics/data";
++import { matchUser, type Filters } from "@/components/analytics/filters";
++import { RangeFilter, defaultRange, rangeLabel, type Range } from "@/components/analytics/range";
++import { KpiCard, Card, Section, EmptyState, ChartSkeleton, PageHeading, UnavailablePill, LazyMount } from "@/components/analytics/primitives";
++import { AreaChart, BarChart, Heatmap } from "@/components/analytics/charts";
++
++const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
++
++export default function UsersAnalyticsPage() {
++    const [range, setRange] = useState<Range>(defaultRange);
++    const { users, loading } = useUsers();
++    const { rows: daily } = useArena("daily");
++    const { rows: weekly } = useArena("weekly");
++
++    const students = useMemo(() => users.filter(u => u.role === "STUDENT"), [users]);
++    const inRange = useMemo(() => {
++        const filters: Filters = { from: range.from, to: range.to, examType: "", classId: "", batch: "" };
++        return students.filter(u => matchUser(u, filters));
++    }, [students, range.from, range.to]);
++
++    const fullSeries = useMemo(() => registrationSeries(students), [students]);
++    const rangeSeries = useMemo(() => registrationSeries(inRange), [inRange]);
++
++    const dau = daily.length;
++    const wau = weekly.length;
++    const newInRange = inRange.length;
++
++    const hours = useMemo(() => hourDistribution(inRange).map((count, h) => ({ label: `${h}`, count })), [inRange]);
++    const weekdays = useMemo(() => weekdayDistribution(inRange), [inRange]);
++    const heat = useMemo(() => {
++        const g = Array.from({ length: 7 }, () => new Array(24).fill(0));
++        for (const u of inRange) {
++            const p = istParts(u.created_at);
++            if (p) g[p.weekdayIndex][p.hour] += 1;
++        }
++        return g;
++    }, [inRange]);
++
++    return (
++        <>
++            <PageHeading title="User Analytics" description="Acquisition, activity and growth of the student base." right={<RangeFilter value={range} onChange={setRange} />} />
++
++            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
++                <KpiCard label="Total Students" value={students.length} icon={<UsersIcon className="h-5 w-5" />} sub="registered" />
++                <KpiCard label={`New (${rangeLabel(range)})`} value={newInRange} icon={<UserPlus className="h-5 w-5" />} accent="blue" sub="registrations in range" />
++                <KpiCard label="DAU" value={dau} icon={<Sun className="h-5 w-5" />} accent="purple" sub={dau >= 100 ? "top 100 (capped)" : "active today"} unavailable={daily.length === 0} unavailableReason="No arena activity today." />
++                <KpiCard label="WAU" value={wau} icon={<CalendarRange className="h-5 w-5" />} sub={wau >= 100 ? "top 100 (capped)" : "active this week"} unavailable={weekly.length === 0} unavailableReason="No weekly arena activity." />
++                <KpiCard label="MAU" value="—" icon={<CalendarDays className="h-5 w-5" />} unavailable unavailableReason="No monthly active window is exposed by the arena API." />
++                <KpiCard label="Returning Users" value="—" icon={<Repeat className="h-5 w-5" />} accent="pink" unavailable unavailableReason="Requires per-user session history, which no endpoint exposes." />
++            </div>
++
++            <LazyMount>
++                <Section title="Growth" description="Registrations over time (IST)">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="Cumulative Students" subtitle={fullSeries.length ? `${fullSeries[0].date} → ${fullSeries.at(-1)!.date}` : undefined}>
++                            {loading ? <ChartSkeleton height={220} /> : fullSeries.length >= 2 ? <AreaChart points={fullSeries.map(p => p.cumulative)} labels={fullSeries.map(p => p.date.slice(5))} height={220} /> : <EmptyState message="Not enough history." />}
++                        </Card>
++                        <Card title={`New Registrations · ${rangeLabel(range)}`}>
++                            {loading ? <ChartSkeleton height={220} /> : rangeSeries.length >= 1 ? <BarChart data={rangeSeries.map(p => ({ label: p.date.slice(5), count: p.count }))} height={220} labelEvery={Math.max(1, Math.ceil(rangeSeries.length / 12))} color="var(--color-accent-blue)" /> : <EmptyState message="No registrations in this range." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Activity Timeline" description="When students register, in IST">
++                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
++                        <Card title="By Hour of Day">
++                            {loading ? <ChartSkeleton /> : inRange.length ? <BarChart data={hours} labelEvery={3} /> : <EmptyState message="No data in range." />}
++                        </Card>
++                        <Card title="By Weekday">
++                            {loading ? <ChartSkeleton /> : inRange.length ? <BarChart data={weekdays} color="var(--color-accent-purple)" /> : <EmptyState message="No data in range." />}
++                        </Card>
++                        <Card title="Weekday × Hour Heatmap" className="lg:col-span-2">
++                            {loading ? <ChartSkeleton /> : inRange.length ? <Heatmap grid={heat} rows={WD} cols={Array.from({ length: 24 }, (_, h) => `${h}`)} /> : <EmptyState message="No data in range." />}
++                        </Card>
++                    </div>
++                </Section>
++            </LazyMount>
++
++            <LazyMount>
++                <Section title="Retention" description="Requires event data the API doesn't expose">
++                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
++                        {[
++                            { t: "User Retention (D1/D7/D30)", r: "No per-user event timeline is exposed; cohort return-rates can't be reconstructed from ranking snapshots." },
++                            { t: "Active vs Dormant", r: "Requires longitudinal per-user activity, which no available endpoint provides." },
++                            { t: "Churn Rate", r: "Depends on retention data that isn't derivable from the current API surface." },
++                        ].map(x => (
++                            <Card key={x.t} title={x.t}>
++                                <UnavailablePill reason={x.r} />
++                            </Card>
++                        ))}
++                    </div>
++                </Section>
++            </LazyMount>
++        </>
++    );
++}
+diff --git a/src/components/analytics/data.ts b/src/components/analytics/data.ts
+index dcafc25..03b4e66 100644
+--- a/src/components/analytics/data.ts
++++ b/src/components/analytics/data.ts
+@@ -12,8 +12,13 @@ import useSWR from "swr";
+ import {
+     fetchAllUsers,
+     fetchArenaRanking,
++    fetchBankExamDistribution,
+     fetchClasses,
+     fetchContests,
++    fetchDifficultyDistribution,
++    fetchQotdEligibleTotal,
++    fetchQotdHistory,
++    fetchQotdSchedule,
+     fetchRatingRanking,
+     fetchStreakRanking,
+     fetchTopPerformers,
+@@ -64,3 +69,32 @@ export function useClasses() {
+     const { data, isLoading } = useSWR("analytics:classes", fetchClasses, OPTS);
+     return { classes: data ?? [], loading: isLoading };
+ }
++
++export function useDifficultyDistribution(exam_type?: string) {
++    const key = `analytics:bank-difficulty:${exam_type ?? ""}`;
++    const { data, isLoading } = useSWR(key, () => fetchDifficultyDistribution(exam_type || undefined), OPTS);
++    return { dist: data ?? [], loading: isLoading };
++}
++
++export function useBankExamDistribution() {
++    const { data, isLoading } = useSWR("analytics:bank-exam", fetchBankExamDistribution, OPTS);
++    return { dist: data ?? [], loading: isLoading };
++}
++
++export function useQotdEligible(exam_type?: string) {
++    const key = exam_type ? `analytics:qotd-eligible:${exam_type}` : null;
++    const { data, isLoading } = useSWR(key, () => fetchQotdEligibleTotal(exam_type!), OPTS);
++    return { total: data ?? 0, loading: isLoading };
++}
++
++export function useQotdSchedule(date: string, classId: string, examType: string) {
++    const key = date && classId && examType ? `analytics:qotd-schedule:${date}:${classId}:${examType}` : null;
++    const { data, isLoading } = useSWR(key, () => fetchQotdSchedule(date, classId, examType), OPTS);
++    return { schedule: data ?? null, loading: isLoading };
++}
++
++export function useQotdHistory(classId: string, examType: string, from: string, to: string) {
++    const key = classId && examType && from && to ? `analytics:qotd-history:${classId}:${examType}:${from}:${to}` : null;
++    const { data, isLoading } = useSWR(key, () => fetchQotdHistory(classId, examType, from, to), OPTS);
++    return { history: data ?? [], loading: isLoading };
++}
+diff --git a/src/components/analytics/filters.tsx b/src/components/analytics/filters.tsx
+index 402ee1a..7596772 100644
+--- a/src/components/analytics/filters.tsx
++++ b/src/components/analytics/filters.tsx
+@@ -1,16 +1,11 @@
+ "use client";
+ 
+ /**
+- * Client-side filters. Because the analytics are derived from bulk list
+- * endpoints (which don't accept arbitrary date/segment filters), filtering is
+- * applied in the browser to already-fetched rows. The exam filter is the one
+- * exception — some ranking endpoints accept `exam_type`, so sections pass it
+- * server-side when relevant.
++ * Client-side user filtering helpers. The analytics pages derive metrics from
++ * bulk list endpoints (which don't accept arbitrary date/segment filters), so
++ * date/segment filtering is applied in the browser to already-fetched rows.
+  */
+ 
+-import { CalendarRange, Filter, X } from "lucide-react";
+-import { CustomSelect } from "@/components/ui/custom-select";
+-import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
+ import { istParts, type AnalyticsUser } from "@/lib/api/analytics";
+ 
+ export interface Filters {
+@@ -21,12 +16,6 @@ export interface Filters {
+     batch: string; // "" = all
+ }
+ 
+-export const EMPTY_FILTERS: Filters = { from: "", to: "", examType: "", classId: "", batch: "" };
+-
+-export function hasActiveFilters(f: Filters): boolean {
+-    return Boolean(f.from || f.to || f.examType || f.classId || f.batch);
+-}
+-
+ /** True if `dateKey` (YYYY-MM-DD) falls within [from, to], treating blanks as open-ended. */
+ export function inDateRange(dateKey: string, from: string, to: string): boolean {
+     if (from && dateKey < from) return false;
+@@ -34,7 +23,7 @@ export function inDateRange(dateKey: string, from: string, to: string): boolean
+     return true;
+ }
+ 
+-/** Whether a user passes the current filters. Date filter applies to registration date. */
++/** Whether a user passes the current filters. The date filter applies to registration date. */
+ export function matchUser(u: AnalyticsUser, f: Filters): boolean {
+     if (f.classId && u.class_id !== f.classId) return false;
+     if (f.batch && (u.batch ?? "") !== f.batch) return false;
+@@ -45,89 +34,3 @@ export function matchUser(u: AnalyticsUser, f: Filters): boolean {
+     }
+     return true;
+ }
+-
+-export function FilterBar({
+-    filters,
+-    onChange,
+-    classOptions,
+-    batchOptions,
+-}: {
+-    filters: Filters;
+-    onChange: (f: Filters) => void;
+-    classOptions: { label: string; value: string }[];
+-    batchOptions: { label: string; value: string }[];
+-}) {
+-    const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
+-    const active = hasActiveFilters(filters);
+-
+-    return (
+-        <div className="glass-card p-4 flex flex-col gap-3">
+-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+-                <Filter className="h-4 w-4 text-brand-500" />
+-                Filters
+-                {active && (
+-                    <button
+-                        onClick={() => onChange(EMPTY_FILTERS)}
+-                        className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+-                    >
+-                        <X className="h-3 w-3" />
+-                        Clear all
+-                    </button>
+-                )}
+-            </div>
+-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+-                <label className="flex flex-col gap-1">
+-                    <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+-                        <CalendarRange className="h-3 w-3" /> From
+-                    </span>
+-                    <input
+-                        type="date"
+-                        value={filters.from}
+-                        max={filters.to || undefined}
+-                        onChange={e => set({ from: e.target.value })}
+-                        className="rounded-xl bg-foreground/5 border border-(--card-border) px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+-                    />
+-                </label>
+-                <label className="flex flex-col gap-1">
+-                    <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+-                        <CalendarRange className="h-3 w-3" /> To
+-                    </span>
+-                    <input
+-                        type="date"
+-                        value={filters.to}
+-                        min={filters.from || undefined}
+-                        onChange={e => set({ to: e.target.value })}
+-                        className="rounded-xl bg-foreground/5 border border-(--card-border) px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+-                    />
+-                </label>
+-                <div className="flex flex-col gap-1">
+-                    <span className="text-xs text-muted-foreground">Exam</span>
+-                    <CustomSelect
+-                        value={filters.examType}
+-                        onChange={v => set({ examType: v })}
+-                        options={[{ label: "All Exams", value: "" }, ...EXAM_TYPE_OPTIONS]}
+-                        placeholder="All Exams"
+-                    />
+-                </div>
+-                <div className="flex flex-col gap-1">
+-                    <span className="text-xs text-muted-foreground">Class</span>
+-                    <CustomSelect
+-                        value={filters.classId}
+-                        onChange={v => set({ classId: v })}
+-                        options={[{ label: "All Classes", value: "" }, ...classOptions]}
+-                        placeholder="All Classes"
+-                    />
+-                </div>
+-                <div className="flex flex-col gap-1">
+-                    <span className="text-xs text-muted-foreground">Batch</span>
+-                    <CustomSelect
+-                        value={filters.batch}
+-                        onChange={v => set({ batch: v })}
+-                        options={[{ label: "All Batches", value: "" }, ...batchOptions]}
+-                        placeholder="All Batches"
+-                    />
+-                </div>
+-            </div>
+-        </div>
+-    );
+-}
+diff --git a/src/components/analytics/nav.tsx b/src/components/analytics/nav.tsx
+new file mode 100644
+index 0000000..6afad47
+--- /dev/null
++++ b/src/components/analytics/nav.tsx
+@@ -0,0 +1,54 @@
++"use client";
++
++import Link from "next/link";
++import { usePathname } from "next/navigation";
++import {
++    LayoutDashboard,
++    Users,
++    Swords,
++    CalendarClock,
++    Award,
++    Flame,
++    Trophy,
++    BellRing,
++    Layers,
++} from "lucide-react";
++
++export const ANALYTICS_SECTIONS = [
++    { href: "/analytics", label: "Overview", icon: LayoutDashboard },
++    { href: "/analytics/users", label: "Users", icon: Users },
++    { href: "/analytics/problem-solving", label: "Problem Solving", icon: Swords },
++    { href: "/analytics/potd", label: "POTD", icon: CalendarClock },
++    { href: "/analytics/contests", label: "Contests", icon: Award },
++    { href: "/analytics/streaks", label: "Streaks", icon: Flame },
++    { href: "/analytics/leaderboards", label: "Leaderboards", icon: Trophy },
++    { href: "/analytics/engagement", label: "Engagement", icon: BellRing },
++    { href: "/analytics/topics", label: "Topics", icon: Layers },
++] as const;
++
++export function AnalyticsNav() {
++    const pathname = usePathname();
++    return (
++        <nav className="sticky top-0 z-10 -mx-1 overflow-x-auto py-1">
++            <div className="flex items-center gap-1.5 min-w-max">
++                {ANALYTICS_SECTIONS.map(s => {
++                    const active = s.href === "/analytics" ? pathname === s.href : pathname.startsWith(s.href);
++                    return (
++                        <Link
++                            key={s.href}
++                            href={s.href}
++                            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
++                                active
++                                    ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20"
++                                    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground border border-transparent"
++                            }`}
++                        >
++                            <s.icon className="h-4 w-4 shrink-0" />
++                            {s.label}
++                        </Link>
++                    );
++                })}
++            </div>
++        </nav>
++    );
++}
+diff --git a/src/components/analytics/overview.tsx b/src/components/analytics/overview.tsx
+deleted file mode 100644
+index cb10df5..0000000
+--- a/src/components/analytics/overview.tsx
++++ /dev/null
+@@ -1,203 +0,0 @@
+-"use client";
+-
+-import { useEffect, useMemo } from "react";
+-import { Users, UserPlus, Swords, CheckCircle2, Star, Flame, Trophy, Activity } from "lucide-react";
+-import {
+-    mean,
+-    median,
+-    registrationSeries,
+-    saveSnapshot,
+-    snapshotDelta,
+-    snapshotSeries,
+-} from "@/lib/api/analytics";
+-import { useArena, useRating, useStreak, useTopPerformers, useUsers } from "./data";
+-import { matchUser, type Filters } from "./filters";
+-import { KpiCard, Card, Stat, Section } from "./primitives";
+-import { Skeleton } from "@/components/ui/skeleton";
+-
+-function KpiSkeleton() {
+-    return (
+-        <div className="glass-card p-5 flex flex-col gap-3">
+-            <div className="flex justify-between">
+-                <Skeleton className="h-4 w-24 rounded" />
+-                <Skeleton className="h-8 w-8 rounded-lg" />
+-            </div>
+-            <Skeleton className="h-8 w-20 rounded" />
+-            <Skeleton className="h-3 w-28 rounded" />
+-        </div>
+-    );
+-}
+-
+-export function Overview({ filters }: { filters: Filters }) {
+-    const { users, loading: usersLoading } = useUsers();
+-    // Daily arena window drives "today"'s activity; all-time drives depth metrics.
+-    const { rows: arenaDaily, loading: arenaDailyLoading } = useArena("daily", filters.examType || undefined);
+-    const { rows: rating, loading: ratingLoading } = useRating(filters.examType || undefined);
+-    const { rows: streak } = useStreak(filters.examType || undefined);
+-    const { top } = useTopPerformers();
+-
+-    const filteredUsers = useMemo(() => users.filter(u => matchUser(u, filters)), [users, filters]);
+-    const students = useMemo(() => filteredUsers.filter(u => u.role === "STUDENT"), [filteredUsers]);
+-
+-    // registrations in the trailing 7 days (of the filtered set)
+-    const new7d = useMemo(() => {
+-        const series = registrationSeries(students);
+-        return series.slice(-7).reduce((a, b) => a + b.count, 0);
+-    }, [students]);
+-
+-    const totalStudents = students.length;
+-    const activeSolversToday = arenaDaily.length; // top-100 window; may under-count beyond 100
+-    const questionsToday = arenaDaily.reduce((a, r) => a + (r.questions_solved || 0), 0);
+-    const avgRating = rating.length ? Math.round(mean(rating.map(r => r.current_rating))) : 0;
+-    const longestStreak = streak.length ? Math.max(...streak.map(s => s.streak_count)) : 0;
+-
+-    // Persist a daily snapshot so day-over-day deltas + sparklines are REAL.
+-    // Only snapshot the unfiltered totals (filters change per-view; snapshots are global).
+-    const globalStudents = users.filter(u => u.role === "STUDENT").length;
+-    useEffect(() => {
+-        if (usersLoading) return;
+-        saveSnapshot({
+-            totalStudents: globalStudents,
+-            activeSolversToday,
+-            questionsToday,
+-            avgRating,
+-        });
+-    }, [usersLoading, globalStudents, activeSolversToday, questionsToday, avgRating]);
+-
+-    const filtersActive = filters.examType || filters.classId || filters.batch || filters.from || filters.to;
+-
+-    if (usersLoading) {
+-        return (
+-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+-                {Array.from({ length: 6 }).map((_, i) => (
+-                    <KpiSkeleton key={i} />
+-                ))}
+-            </div>
+-        );
+-    }
+-
+-    return (
+-        <div className="flex flex-col gap-5">
+-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+-                <KpiCard
+-                    label="Total Students"
+-                    value={totalStudents}
+-                    icon={<Users className="h-5 w-5" />}
+-                    sub={filtersActive ? "matching filters" : "registered"}
+-                    delta={filtersActive ? undefined : snapshotDelta("totalStudents", globalStudents)}
+-                    spark={filtersActive ? undefined : snapshotSeries("totalStudents")}
+-                />
+-                <KpiCard
+-                    label="New (7 days)"
+-                    value={new7d}
+-                    icon={<UserPlus className="h-5 w-5" />}
+-                    accent="blue"
+-                    sub="recent sign-ups"
+-                />
+-                <KpiCard
+-                    label="Active Solvers (Today)"
+-                    value={activeSolversToday}
+-                    icon={<Swords className="h-5 w-5" />}
+-                    accent="purple"
+-                    sub={activeSolversToday >= 100 ? "top 100 (capped)" : "solved ≥1 today"}
+-                    delta={filtersActive ? undefined : snapshotDelta("activeSolversToday", activeSolversToday)}
+-                    spark={filtersActive ? undefined : snapshotSeries("activeSolversToday")}
+-                    unavailable={!arenaDailyLoading && arenaDaily.length === 0}
+-                    unavailableReason="No arena activity recorded for today yet."
+-                />
+-                <KpiCard
+-                    label="Questions Solved (Today)"
+-                    value={questionsToday}
+-                    icon={<CheckCircle2 className="h-5 w-5" />}
+-                    accent="pink"
+-                    sub={activeSolversToday >= 100 ? "among top 100 solvers" : "across all solvers"}
+-                    delta={filtersActive ? undefined : snapshotDelta("questionsToday", questionsToday)}
+-                    spark={filtersActive ? undefined : snapshotSeries("questionsToday")}
+-                    unavailable={!arenaDailyLoading && arenaDaily.length === 0}
+-                    unavailableReason="Derived from today's arena ranking, which is empty."
+-                />
+-                <KpiCard
+-                    label="Avg Rating (Top 100)"
+-                    value={avgRating}
+-                    icon={<Star className="h-5 w-5" />}
+-                    sub={rating.length ? `across ${rating.length} rated` : undefined}
+-                    delta={filtersActive ? undefined : snapshotDelta("avgRating", avgRating)}
+-                    spark={filtersActive ? undefined : snapshotSeries("avgRating")}
+-                    unavailable={!ratingLoading && rating.length === 0}
+-                    unavailableReason="Rating ranking returned no rows."
+-                />
+-                <KpiCard
+-                    label="Longest Active Streak"
+-                    value={longestStreak}
+-                    icon={<Flame className="h-5 w-5" />}
+-                    accent="pink"
+-                    sub={longestStreak ? "days (current cohort)" : undefined}
+-                    unavailable={streak.length === 0}
+-                    unavailableReason="Streak ranking returned no rows."
+-                />
+-            </div>
+-
+-            <ArenaHealth
+-                top={top}
+-                ratingValues={rating.map(r => r.current_rating)}
+-                solvedValues={arenaDaily.map(r => r.questions_solved)}
+-            />
+-        </div>
+-    );
+-}
+-
+-function ArenaHealth({
+-    top,
+-    ratingValues,
+-    solvedValues,
+-}: {
+-    top: import("@/lib/api/analytics").TopPerformers | null;
+-    ratingValues: number[];
+-    solvedValues: number[];
+-}) {
+-    const name = (u: { name?: string; user_name?: string } | null | undefined) => u?.name || u?.user_name || "—";
+-    return (
+-        <Section title="Arena Health" description="Snapshot of competitive engagement" icon={<Activity className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+-                <Card title="Top Performers">
+-                    <div className="flex flex-col gap-3">
+-                        <TopPerformerRow icon={<Star className="h-4 w-4 text-accent-purple" />} label="Best Rating" name={name(top?.best_rating?.user)} value={top?.best_rating?.metric_value} suffix="rating" />
+-                        <TopPerformerRow icon={<Trophy className="h-4 w-4 text-brand-500" />} label="Most Solved" name={name(top?.best_questions?.user)} value={top?.best_questions?.metric_value} suffix="solved" />
+-                        <TopPerformerRow icon={<Activity className="h-4 w-4 text-accent-pink" />} label="Biggest Delta" name={name(top?.best_delta?.user)} value={top?.best_delta?.metric_value} suffix="Δ" />
+-                    </div>
+-                </Card>
+-                <Card title="Rating Distribution" subtitle="Top 100 rated students">
+-                    <div className="grid grid-cols-2 gap-4">
+-                        <Stat label="Mean" value={ratingValues.length ? Math.round(mean(ratingValues)) : "—"} />
+-                        <Stat label="Median" value={ratingValues.length ? Math.round(median(ratingValues)) : "—"} />
+-                        <Stat label="Highest" value={ratingValues.length ? Math.max(...ratingValues) : "—"} />
+-                        <Stat label="Lowest" value={ratingValues.length ? Math.min(...ratingValues) : "—"} />
+-                    </div>
+-                </Card>
+-                <Card title="Today's Solving" subtitle="Among ranked solvers today">
+-                    <div className="grid grid-cols-2 gap-4">
+-                        <Stat label="Solvers" value={solvedValues.length || "—"} />
+-                        <Stat label="Total Solved" value={solvedValues.length ? solvedValues.reduce((a, b) => a + b, 0) : "—"} />
+-                        <Stat label="Median / solver" value={solvedValues.length ? Math.round(median(solvedValues)) : "—"} />
+-                        <Stat label="Top solver" value={solvedValues.length ? Math.max(...solvedValues) : "—"} />
+-                    </div>
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-function TopPerformerRow({ icon, label, name, value, suffix }: { icon: React.ReactNode; label: string; name: string; value?: number; suffix: string }) {
+-    return (
+-        <div className="flex items-center gap-3">
+-            <div className="p-2 rounded-lg bg-foreground/5 border border-(--card-border)">{icon}</div>
+-            <div className="min-w-0 flex-1">
+-                <p className="text-xs text-muted-foreground">{label}</p>
+-                <p className="text-sm font-semibold text-foreground truncate">{name}</p>
+-            </div>
+-            <span className="text-sm font-bold text-foreground tabular-nums">
+-                {value !== undefined ? `${value.toLocaleString()} ${suffix}` : "—"}
+-            </span>
+-        </div>
+-    );
+-}
+diff --git a/src/components/analytics/primitives.tsx b/src/components/analytics/primitives.tsx
+index 14c7f53..82f153c 100644
+--- a/src/components/analytics/primitives.tsx
++++ b/src/components/analytics/primitives.tsx
+@@ -96,6 +96,30 @@ function DeltaBadge({ delta }: { delta: Delta }) {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// PageHeading — per-section title + description with a right-aligned control
++// slot (typically the RangeFilter). Keeps every analytics page consistent.
++// ---------------------------------------------------------------------------
++export function PageHeading({
++    title,
++    description,
++    right,
++}: {
++    title: string;
++    description?: string;
++    right?: React.ReactNode;
++}) {
++    return (
++        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
++            <div>
++                <h2 className="text-xl font-bold tracking-tight text-foreground">{title}</h2>
++                {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
++            </div>
++            {right && <div className="shrink-0">{right}</div>}
++        </div>
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // Section — a titled band that groups related cards.
+ // ---------------------------------------------------------------------------
+@@ -200,6 +224,27 @@ export function UnavailablePill({ reason }: { reason?: string }) {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// NameCell — avatar-initial + name, shared by every ranking table.
++// ---------------------------------------------------------------------------
++export function NameCell({ name }: { name: string }) {
++    return (
++        <div className="flex items-center gap-2.5">
++            <div className="h-7 w-7 shrink-0 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-600 dark:text-brand-400 font-bold border border-brand-500/20 text-xs">
++                {name?.[0]?.toUpperCase() || "?"}
++            </div>
++            <span className="truncate font-medium">{name || "Unknown"}</span>
++        </div>
++    );
++}
++
++// ---------------------------------------------------------------------------
++// ChartSkeleton — placeholder while a section's data loads.
++// ---------------------------------------------------------------------------
++export function ChartSkeleton({ height = 200 }: { height?: number }) {
++    return <div className="w-full animate-pulse rounded-xl bg-muted/20" style={{ height }} />;
++}
++
+ // ---------------------------------------------------------------------------
+ // RankBadge — medal for top 3, muted rank number otherwise.
+ // ---------------------------------------------------------------------------
+diff --git a/src/components/analytics/range.tsx b/src/components/analytics/range.tsx
+new file mode 100644
+index 0000000..873f734
+--- /dev/null
++++ b/src/components/analytics/range.tsx
+@@ -0,0 +1,102 @@
++"use client";
++
++/**
++ * Per-section time-range filter (Today / Last 7 Days / Last 30 Days / Custom).
++ * Each analytics page owns its own Range state, so changing the window on one
++ * page never affects another. Dates are IST calendar days ("YYYY-MM-DD").
++ *
++ * NOTE on ranking windows: the arena/rating/streak endpoints only expose
++ * daily | weekly | all_time windows, so a *custom* range can't re-slice those.
++ * The range therefore fully drives user/registration time-series (derived from
++ * created_at) and selects the closest arena window for activity metrics; pages
++ * say so where the mapping is approximate.
++ */
++
++import { istTodayKey, shiftDateKey, type TimeFilter } from "@/lib/api/analytics";
++
++export type PresetKey = "today" | "7d" | "30d";
++export type RangeKey = PresetKey | "custom";
++
++export interface Range {
++    key: RangeKey;
++    from: string; // inclusive "YYYY-MM-DD"
++    to: string; // inclusive "YYYY-MM-DD"
++}
++
++const PRESETS: { key: PresetKey; label: string; days: number }[] = [
++    { key: "today", label: "Today", days: 1 },
++    { key: "7d", label: "Last 7 Days", days: 7 },
++    { key: "30d", label: "Last 30 Days", days: 30 },
++];
++
++/** Compute the [from, to] IST day window for a preset. */
++export function presetRange(key: PresetKey): Range {
++    const to = istTodayKey();
++    const days = PRESETS.find(p => p.key === key)?.days ?? 30;
++    return { key, from: shiftDateKey(to, -(days - 1)), to };
++}
++
++export function defaultRange(): Range {
++    return presetRange("30d");
++}
++
++export function rangeLabel(r: Range): string {
++    if (r.key === "custom") return `${r.from || "…"} → ${r.to || "…"}`;
++    return PRESETS.find(p => p.key === r.key)?.label ?? "Last 30 Days";
++}
++
++/** Best-effort mapping of a range to the arena/ranking window it approximates. */
++export function rangeToTimeFilter(r: Range): TimeFilter | undefined {
++    if (r.key === "today") return "daily";
++    if (r.key === "7d") return "weekly";
++    return undefined; // 30d / custom → all-time (no monthly window exists)
++}
++
++export function RangeFilter({ value, onChange }: { value: Range; onChange: (r: Range) => void }) {
++    return (
++        <div className="flex flex-wrap items-center gap-2">
++            <div className="inline-flex items-center rounded-xl bg-foreground/5 border border-(--card-border) p-1">
++                {PRESETS.map(p => (
++                    <button
++                        key={p.key}
++                        onClick={() => onChange(presetRange(p.key))}
++                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
++                            value.key === p.key
++                                ? "bg-brand-500 text-white shadow-sm"
++                                : "text-muted-foreground hover:text-foreground"
++                        }`}
++                    >
++                        {p.label}
++                    </button>
++                ))}
++                <button
++                    onClick={() => onChange({ ...value, key: "custom" })}
++                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
++                        value.key === "custom" ? "bg-brand-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
++                    }`}
++                >
++                    Custom
++                </button>
++            </div>
++            {value.key === "custom" && (
++                <div className="flex items-center gap-2">
++                    <input
++                        type="date"
++                        value={value.from}
++                        max={value.to || undefined}
++                        onChange={e => onChange({ ...value, key: "custom", from: e.target.value })}
++                        className="rounded-lg bg-foreground/5 border border-(--card-border) px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30"
++                    />
++                    <span className="text-xs text-muted-foreground">to</span>
++                    <input
++                        type="date"
++                        value={value.to}
++                        min={value.from || undefined}
++                        onChange={e => onChange({ ...value, key: "custom", to: e.target.value })}
++                        className="rounded-lg bg-foreground/5 border border-(--card-border) px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30"
++                    />
++                </div>
++            )}
++        </div>
++    );
++}
+diff --git a/src/components/analytics/sections.tsx b/src/components/analytics/sections.tsx
+deleted file mode 100644
+index 5771670..0000000
+--- a/src/components/analytics/sections.tsx
++++ /dev/null
+@@ -1,407 +0,0 @@
+-"use client";
+-
+-import { useMemo } from "react";
+-import useSWR from "swr";
+-import {
+-    TrendingUp,
+-    Swords,
+-    Flame,
+-    Star,
+-    Award,
+-    Repeat,
+-    Clock,
+-    PieChart,
+-    MapPin,
+-} from "lucide-react";
+-import {
+-    bucketize,
+-    categoryCounts,
+-    fetchContestRanking,
+-    hourDistribution,
+-    multiCategoryCounts,
+-    registrationSeries,
+-    weekdayDistribution,
+-    istParts,
+-    type ContestRow,
+-} from "@/lib/api/analytics";
+-import { useArena, useClasses, useContests, useRating, useStreak, useUsers } from "./data";
+-import { matchUser, type Filters } from "./filters";
+-import { Card, DataTable, EmptyState, RankBadge, Section, Stat, UnavailablePill, type Column } from "./primitives";
+-import { AreaChart, BarChart, DonutChart, HBarList, Heatmap } from "./charts";
+-import { Skeleton } from "@/components/ui/skeleton";
+-import { formatExamType } from "@/lib/exam-types";
+-
+-function ChartSkeleton({ height = 200 }: { height?: number }) {
+-    return <Skeleton className="w-full rounded-xl" style={{ height }} />;
+-}
+-
+-// A small avatar-less name cell shared by ranking tables.
+-function NameCell({ name }: { name: string }) {
+-    return (
+-        <div className="flex items-center gap-2.5">
+-            <div className="h-7 w-7 shrink-0 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-600 dark:text-brand-400 font-bold border border-brand-500/20 text-xs">
+-                {name?.[0]?.toUpperCase() || "?"}
+-            </div>
+-            <span className="truncate font-medium">{name || "Unknown"}</span>
+-        </div>
+-    );
+-}
+-
+-// ===========================================================================
+-// GROWTH — registrations over time (derived from users.created_at, IST days)
+-// ===========================================================================
+-export function GrowthSection({ filters }: { filters: Filters }) {
+-    const { users, loading } = useUsers();
+-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
+-    const series = useMemo(() => registrationSeries(students), [students]);
+-
+-    const cumulative = series.map(p => p.cumulative);
+-    const daily = series.map(p => ({ label: p.date.slice(5), count: p.count }));
+-    const labels = series.map(p => p.date.slice(5));
+-
+-    return (
+-        <Section title="Growth" description="Student registrations over time (IST)" icon={<TrendingUp className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Cumulative Students" subtitle={series.length ? `${series[0].date} → ${series[series.length - 1].date}` : undefined}>
+-                    {loading ? <ChartSkeleton /> : series.length >= 2 ? <AreaChart points={cumulative} labels={labels} /> : <EmptyState message="Not enough registration history to plot growth." />}
+-                </Card>
+-                <Card title="New Registrations / Day">
+-                    {loading ? (
+-                        <ChartSkeleton />
+-                    ) : daily.length >= 2 ? (
+-                        <BarChart data={daily} labelEvery={Math.max(1, Math.ceil(daily.length / 12))} color="var(--color-accent-blue)" />
+-                    ) : (
+-                        <EmptyState message="Not enough registration history." />
+-                    )}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// PROBLEM SOLVING — arena (all-time) depth & top solvers
+-// ===========================================================================
+-export function ProblemSolvingSection({ filters }: { filters: Filters }) {
+-    const { rows, loading } = useArena(undefined, filters.examType || undefined); // all-time
+-    const solved = rows.map(r => r.questions_solved);
+-    const dist = useMemo(
+-        () =>
+-            bucketize(solved, [
+-                { label: "0", min: 0, max: 0 },
+-                { label: "1–10", min: 1, max: 10 },
+-                { label: "11–50", min: 11, max: 50 },
+-                { label: "51–100", min: 51, max: 100 },
+-                { label: "101–250", min: 101, max: 250 },
+-                { label: "251–500", min: 251, max: 500 },
+-                { label: "500+", min: 501 },
+-            ]),
+-        [solved],
+-    );
+-
+-    const cols: Column<(typeof rows)[number]>[] = [
+-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
+-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
+-        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{r.questions_solved.toLocaleString()}</span>, align: "right" },
+-    ];
+-
+-    return (
+-        <Section title="Problem Solving" description="Arena all-time depth (top 100 solvers)" icon={<Swords className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Solved-Count Distribution" subtitle="How deep the top cohort has gone">
+-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} /> : <EmptyState message="Arena ranking returned no rows." />}
+-                </Card>
+-                <Card title="Top Solvers">
+-                    {loading ? (
+-                        <ChartSkeleton />
+-                    ) : rows.length ? (
+-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" />
+-                    ) : (
+-                        <EmptyState message="Arena ranking returned no rows." />
+-                    )}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// RATING — distribution across the rated cohort + top rated
+-// ===========================================================================
+-export function RatingSection({ filters }: { filters: Filters }) {
+-    const { rows, loading } = useRating(filters.examType || undefined);
+-    const dist = useMemo(
+-        () =>
+-            bucketize(
+-                rows.map(r => r.current_rating),
+-                [
+-                    { label: "< 800", min: 0, max: 799 },
+-                    { label: "800–999", min: 800, max: 999 },
+-                    { label: "1000–1199", min: 1000, max: 1199 },
+-                    { label: "1200–1399", min: 1200, max: 1399 },
+-                    { label: "1400–1599", min: 1400, max: 1599 },
+-                    { label: "1600+", min: 1600 },
+-                ],
+-            ),
+-        [rows],
+-    );
+-    const titles = useMemo(() => categoryCounts(rows, r => r.title || "Unrated"), [rows]);
+-
+-    const cols: Column<(typeof rows)[number]>[] = [
+-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
+-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
+-        { key: "title", header: "Title", render: r => <span className="text-xs text-muted-foreground">{r.title || "—"}</span> },
+-        { key: "rating", header: "Rating", render: r => <span className="font-bold tabular-nums">{r.current_rating.toLocaleString()}</span>, align: "right" },
+-        { key: "peak", header: "Peak", render: r => <span className="text-muted-foreground tabular-nums">{r.max_rating.toLocaleString()}</span>, align: "right" },
+-    ];
+-
+-    return (
+-        <Section title="Rating" description="Competitive rating spread (top 100)" icon={<Star className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Rating Bands">
+-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="Rating ranking returned no rows." />}
+-                </Card>
+-                <Card title="Titles">
+-                    {loading ? <ChartSkeleton /> : titles.length ? <DonutChart data={titles} /> : <EmptyState message="No title data available." />}
+-                </Card>
+-                <Card title="Top Rated" className="lg:col-span-2">
+-                    {loading ? (
+-                        <ChartSkeleton />
+-                    ) : rows.length ? (
+-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" />
+-                    ) : (
+-                        <EmptyState message="Rating ranking returned no rows." />
+-                    )}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// STREAK — consistency across the streak cohort
+-// ===========================================================================
+-export function StreakSection({ filters }: { filters: Filters }) {
+-    const { rows, loading } = useStreak(filters.examType || undefined);
+-    const dist = useMemo(
+-        () =>
+-            bucketize(
+-                rows.map(r => r.streak_count),
+-                [
+-                    { label: "1–2 days", min: 1, max: 2 },
+-                    { label: "3–6 days", min: 3, max: 6 },
+-                    { label: "1–2 weeks", min: 7, max: 14 },
+-                    { label: "2–4 weeks", min: 15, max: 30 },
+-                    { label: "1–3 months", min: 31, max: 90 },
+-                    { label: "3 months+", min: 91 },
+-                ],
+-            ),
+-        [rows],
+-    );
+-    const cols: Column<(typeof rows)[number]>[] = [
+-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
+-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
+-        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{r.streak_count.toLocaleString()} days</span>, align: "right" },
+-    ];
+-
+-    return (
+-        <Section title="Streaks" description="Daily-habit consistency (top 100)" icon={<Flame className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Streak Distribution">
+-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="Streak ranking returned no rows." />}
+-                </Card>
+-                <Card title="Longest Streaks">
+-                    {loading ? (
+-                        <ChartSkeleton />
+-                    ) : rows.length ? (
+-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={8} />
+-                    ) : (
+-                        <EmptyState message="Streak ranking returned no rows." />
+-                    )}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// CONTESTS — schedule cadence + participation (class-scoped)
+-// ===========================================================================
+-function contestMonthKey(c: ContestRow): string | null {
+-    const p = istParts(c.starts_at || c.created_at);
+-    return p ? p.dateKey.slice(0, 7) : null; // YYYY-MM
+-}
+-
+-export function ContestSection() {
+-    const { contests, loading } = useContests();
+-
+-    // Classify by the backend-provided status (avoids clock reads in render):
+-    // "finished" contests are completed; anything else is upcoming/ongoing.
+-    const past = contests.filter(c => c.status === "finished");
+-    const upcoming = contests.filter(c => c.status !== "finished");
+-
+-    const byMonth = useMemo(() => {
+-        const m = new Map<string, number>();
+-        for (const c of contests) {
+-            const k = contestMonthKey(c);
+-            if (k) m.set(k, (m.get(k) ?? 0) + 1);
+-        }
+-        return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => ({ label: label.slice(2), count }));
+-    }, [contests]);
+-
+-    // Participation for the most-recent past contest. Backend scopes the ranking
+-    // to the admin's class, so this legitimately may come back empty.
+-    const recent = useMemo(
+-        () => [...past].sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())[0] ?? null,
+-        [past],
+-    );
+-    const { data: ranking, isLoading: rankingLoading } = useSWR(
+-        recent ? `analytics:contest-ranking:${recent.id}` : null,
+-        () => fetchContestRanking(recent!.id),
+-        { revalidateOnFocus: false, dedupingInterval: 300_000 },
+-    );
+-
+-    const cols: Column<NonNullable<typeof ranking>["rows"][number]>[] = [
+-        { key: "rank", header: "#", render: r => <RankBadge rank={r.rank} />, align: "center", className: "w-10" },
+-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
+-        { key: "acc", header: "Accuracy", render: r => <span className="text-muted-foreground tabular-nums">{Math.round((r.accuracy || 0) * 100)}%</span>, align: "right" },
+-        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{r.score.toLocaleString()}</span>, align: "right" },
+-    ];
+-
+-    return (
+-        <Section title="Contests" description="Assessment cadence & participation" icon={<Award className="h-5 w-5" />}>
+-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+-                <Card><Stat label="Total Contests" value={loading ? "…" : contests.length} /></Card>
+-                <Card><Stat label="Upcoming" value={loading ? "…" : upcoming.length} /></Card>
+-                <Card><Stat label="Completed" value={loading ? "…" : past.length} /></Card>
+-                <Card><Stat label="This Month" value={loading ? "…" : (byMonth.at(-1)?.count ?? 0)} hint="scheduled" /></Card>
+-            </div>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Contests / Month">
+-                    {loading ? <ChartSkeleton /> : byMonth.length ? <BarChart data={byMonth} color="var(--color-accent-purple)" /> : <EmptyState message="No contests scheduled yet." />}
+-                </Card>
+-                <Card
+-                    title="Latest Contest Participation"
+-                    subtitle={recent ? recent.name : undefined}
+-                    right={ranking && ranking.total ? <span className="text-xs text-muted-foreground">{ranking.total} participants</span> : undefined}
+-                >
+-                    {loading || rankingLoading ? (
+-                        <ChartSkeleton />
+-                    ) : !recent ? (
+-                        <EmptyState message="No completed contests to report on." />
+-                    ) : ranking && ranking.rows.length ? (
+-                        <DataTable columns={cols} rows={ranking.rows} pageSize={8} />
+-                    ) : (
+-                        <UnavailablePill reason="Contest ranking is scoped to the admin's own class by the backend, so cross-class participation isn't derivable here." />
+-                    )}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// DEMOGRAPHICS — class / exam / batch / geography split of the student base
+-// ===========================================================================
+-export function DemographicsSection({ filters }: { filters: Filters }) {
+-    const { users, loading } = useUsers();
+-    const { classes } = useClasses();
+-    const classNames = useMemo(() => new Map(classes.map(c => [c.id, c.name])), [classes]);
+-
+-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
+-
+-    const byExam = useMemo(() => multiCategoryCounts(students, u => u.target_exams).map(b => ({ label: formatExamType(b.label), count: b.count })), [students]);
+-    const byClass = useMemo(() => categoryCounts(students, u => (u.class_id ? classNames.get(u.class_id) ?? u.class_id : null), "No class"), [students, classNames]);
+-    const byBatch = useMemo(() => categoryCounts(students, u => u.batch, "No batch"), [students]);
+-    const byState = useMemo(() => categoryCounts(students, u => u.state, "Unknown").slice(0, 10), [students]);
+-
+-    return (
+-        <Section title="Demographics" description="Who makes up the student base" icon={<PieChart className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="Target Exam">
+-                    {loading ? <ChartSkeleton /> : byExam.length ? <DonutChart data={byExam} /> : <EmptyState message="No exam data on student profiles." />}
+-                </Card>
+-                <Card title="Class">
+-                    {loading ? <ChartSkeleton /> : byClass.length ? <DonutChart data={byClass} /> : <EmptyState message="No class data on student profiles." />}
+-                </Card>
+-                <Card title="Batch">
+-                    {loading ? <ChartSkeleton /> : byBatch.length ? <HBarList data={byBatch.slice(0, 10)} colorByIndex /> : <EmptyState message="No batch data on student profiles." />}
+-                </Card>
+-                <Card title="Top States" subtitle="By registered students">
+-                    {loading ? <ChartSkeleton /> : byState.some(b => b.label !== "Unknown") ? <HBarList data={byState} /> : <UnavailablePill reason="Student profiles carry no location data to derive geography from." />}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// REGISTRATION ACTIVITY — when students sign up (weekday × hour heatmap, IST)
+-// ===========================================================================
+-export function ActivitySection({ filters }: { filters: Filters }) {
+-    const { users, loading } = useUsers();
+-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
+-
+-    const hours = useMemo(() => hourDistribution(students).map((count, h) => ({ label: `${h}`, count })), [students]);
+-    const weekdays = useMemo(() => weekdayDistribution(students), [students]);
+-
+-    // weekday(row) × hour(col) grid
+-    const heat = useMemo(() => {
+-        const g = Array.from({ length: 7 }, () => new Array(24).fill(0));
+-        for (const u of students) {
+-            const p = istParts(u.created_at);
+-            if (p) g[p.weekdayIndex][p.hour] += 1;
+-        }
+-        return g;
+-    }, [students]);
+-    const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+-
+-    return (
+-        <Section title="Registration Activity" description="When students join, in IST" icon={<Clock className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+-                <Card title="By Hour of Day">
+-                    {loading ? <ChartSkeleton /> : students.length ? <BarChart data={hours} labelEvery={3} /> : <EmptyState message="No registration data." />}
+-                </Card>
+-                <Card title="By Weekday">
+-                    {loading ? <ChartSkeleton /> : students.length ? <BarChart data={weekdays} color="var(--color-accent-blue)" /> : <EmptyState message="No registration data." />}
+-                </Card>
+-                <Card title="Weekday × Hour Heatmap" className="lg:col-span-2" subtitle="Registration density (IST)">
+-                    {loading ? <ChartSkeleton /> : students.length ? <Heatmap grid={heat} rows={WD} cols={Array.from({ length: 24 }, (_, h) => `${h}`)} /> : <EmptyState message="No registration data." />}
+-                </Card>
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// ===========================================================================
+-// RETENTION — genuinely NOT derivable from the available endpoints
+-// ===========================================================================
+-export function RetentionSection() {
+-    const items = [
+-        { label: "Monthly Active Users (MAU)", reason: "Arena ranking exposes only daily & weekly windows — there is no monthly activity feed to derive a 30-day active count from." },
+-        { label: "D1 / D7 / D30 Retention", reason: "No per-user event timeline is exposed; cohort return-rates can't be reconstructed from ranking snapshots." },
+-        { label: "Avg. Session Duration", reason: "No session/heartbeat endpoint exists in the current API surface." },
+-        { label: "Churn Rate", reason: "Requires longitudinal activity per user, which no available endpoint provides." },
+-    ];
+-    return (
+-        <Section title="Retention & Engagement" description="Requires event data the API doesn't expose" icon={<Repeat className="h-5 w-5" />}>
+-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+-                {items.map(it => (
+-                    <Card key={it.label} title={it.label}>
+-                        <UnavailablePill reason={it.reason} />
+-                    </Card>
+-                ))}
+-            </div>
+-        </Section>
+-    );
+-}
+-
+-// A tiny inline note component reused where a caveat matters.
+-export function DerivationNote({ children }: { children: React.ReactNode }) {
+-    return (
+-        <p className="text-xs text-muted-foreground/80 flex items-start gap-1.5">
+-            <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
+-            {children}
+-        </p>
+-    );
+-}
+diff --git a/src/lib/api/analytics.ts b/src/lib/api/analytics.ts
+index c32d07e..2704ee6 100644
+--- a/src/lib/api/analytics.ts
++++ b/src/lib/api/analytics.ts
+@@ -121,14 +121,41 @@ export async function fetchAllUsers(): Promise<AnalyticsUser[]> {
+     return out;
+ }
+ 
++// Ranking endpoints are not perfectly uniform in their field names (the
++// leaderboard page already defends across `metric_value` / `score`). We
++// normalise each row into our typed shape and coerce the metric to a number so
++// a renamed/absent field degrades to 0 instead of crashing a `.toLocaleString`.
++type RawRow = Record<string, unknown>;
++const num = (...vals: unknown[]): number => {
++    for (const v of vals) {
++        const n = typeof v === "string" ? Number(v) : v;
++        if (typeof n === "number" && Number.isFinite(n)) return n;
++    }
++    return 0;
++};
++const str = (...vals: unknown[]): string => {
++    for (const v of vals) if (typeof v === "string" && v) return v;
++    return "";
++};
++const rowsOf = (data: unknown): RawRow[] => {
++    const d = data as { users?: RawRow[]; rankings?: RawRow[] } | RawRow[] | null;
++    if (Array.isArray(d)) return d;
++    return d?.users ?? d?.rankings ?? [];
++};
++
+ /** Top solvers for a time window (or all-time when `time_filter` omitted). */
+ export async function fetchArenaRanking(time_filter?: TimeFilter, exam_type?: string): Promise<ArenaRankRow[]> {
+     try {
+         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
+         if (time_filter) params.time_filter = time_filter;
+         if (exam_type) params.exam_type = exam_type;
+-        const { data } = await apiClient.get<{ users?: ArenaRankRow[] }>("/api/v1/arena-ranking/", { params });
+-        return data?.users ?? [];
++        const { data } = await apiClient.get("/api/v1/arena-ranking/", { params });
++        return rowsOf(data).map(u => ({
++            user_id: str(u.user_id, u.id),
++            user_name: str(u.user_name, u.name),
++            avatar_url: (u.avatar_url as string) ?? null,
++            questions_solved: num(u.questions_solved, u.metric_value, u.score),
++        }));
+     } catch {
+         return [];
+     }
+@@ -138,8 +165,15 @@ export async function fetchRatingRanking(exam_type?: string): Promise<RatingRank
+     try {
+         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
+         if (exam_type) params.exam_type = exam_type;
+-        const { data } = await apiClient.get<{ users?: RatingRankRow[] }>("/api/v1/rating-ranking/", { params });
+-        return data?.users ?? [];
++        const { data } = await apiClient.get("/api/v1/rating-ranking/", { params });
++        return rowsOf(data).map(u => ({
++            user_id: str(u.user_id, u.id),
++            user_name: str(u.user_name, u.name),
++            avatar_url: (u.avatar_url as string) ?? null,
++            current_rating: num(u.current_rating, u.rating, u.metric_value),
++            max_rating: num(u.max_rating, u.peak_rating, u.current_rating, u.rating),
++            title: str(u.title),
++        }));
+     } catch {
+         return [];
+     }
+@@ -149,11 +183,13 @@ export async function fetchStreakRanking(exam_type?: string): Promise<StreakRank
+     try {
+         const params: Record<string, string | number> = { skip: 0, limit: RANK_PAGE };
+         if (exam_type) params.exam_type = exam_type;
+-        const { data } = await apiClient.get<{ users?: StreakRankRow[]; rankings?: StreakRankRow[] }>(
+-            "/api/v1/streak-ranking/",
+-            { params },
+-        );
+-        return data?.users ?? data?.rankings ?? [];
++        const { data } = await apiClient.get("/api/v1/streak-ranking/", { params });
++        return rowsOf(data).map(u => ({
++            user_id: str(u.user_id, u.id),
++            user_name: str(u.user_name, u.name),
++            avatar_url: (u.avatar_url as string) ?? null,
++            streak_count: num(u.streak_count, u.current_streak, u.streak, u.metric_value),
++        }));
+     } catch {
+         return [];
+     }
+@@ -190,17 +226,31 @@ export interface ContestRankingRow {
+     accuracy: number;
+     attempted: number;
+     correct: number;
++    rating_after: number;
++    rating_delta: number;
+ }
+ 
+ /** Per-contest ranking. Backend scopes this to the admin's own class, so it can
+  * legitimately return empty for contests outside that class. */
+ export async function fetchContestRanking(contestId: string): Promise<{ rows: ContestRankingRow[]; total: number }> {
+     try {
+-        const { data } = await apiClient.get<{ users?: ContestRankingRow[]; total?: number }>(
+-            `/api/v1/contest-ranking/${contestId}`,
+-            { params: { skip: 0, limit: RANK_PAGE } },
+-        );
+-        return { rows: data?.users ?? [], total: data?.total ?? data?.users?.length ?? 0 };
++        const { data } = await apiClient.get(`/api/v1/contest-ranking/${contestId}`, {
++            params: { skip: 0, limit: RANK_PAGE },
++        });
++        const raw = rowsOf(data);
++        const rows: ContestRankingRow[] = raw.map((u, i) => ({
++            user_id: str(u.user_id, u.id),
++            user_name: str(u.user_name, u.name),
++            score: num(u.score, u.metric_value),
++            rank: num(u.rank) || i + 1,
++            accuracy: num(u.accuracy),
++            attempted: num(u.attempted),
++            correct: num(u.correct),
++            rating_after: num(u.rating_after),
++            rating_delta: num(u.rating_delta),
++        }));
++        const total = num((data as { total?: unknown })?.total) || rows.length;
++        return { rows, total };
+     } catch {
+         return { rows: [], total: 0 };
+     }
+@@ -215,6 +265,102 @@ export async function fetchClasses(): Promise<ClassRow[]> {
+     }
+ }
+ 
++// ---------------------------------------------------------------------------
++// Question-bank stats — the /questions/ list endpoint reports a `total` for any
++// filter combination, so we can derive bank composition (difficulty / exam)
++// with cheap count-only queries (limit=1) instead of paging the whole bank.
++// NOTE: these describe the QUESTION BANK, not what students have solved — the
++// per-attempt solve feed is user-scoped and not derivable admin-wide.
++// ---------------------------------------------------------------------------
++
++export async function fetchQuestionTotal(params: Record<string, string | number | boolean> = {}): Promise<number> {
++    try {
++        const { data } = await apiClient.get("/api/v1/questions/", { params: { ...params, limit: 1 } });
++        return num((data as { total?: unknown; questions?: unknown[] })?.total, (data as { questions?: unknown[] })?.questions?.length);
++    } catch {
++        return 0;
++    }
++}
++
++const DIFFICULTIES = [
++    { label: "Easy", value: 1 },
++    { label: "Medium", value: 2 },
++    { label: "Hard", value: 3 },
++];
++
++/** Bank difficulty split (optionally within one exam track). */
++export async function fetchDifficultyDistribution(exam_type?: string): Promise<Bucket[]> {
++    const counts = await Promise.all(
++        DIFFICULTIES.map(d => fetchQuestionTotal({ difficulty: d.value, ...(exam_type ? { exam_type } : {}) })),
++    );
++    return DIFFICULTIES.map((d, i) => ({ label: d.label, count: counts[i] }));
++}
++
++const BANK_EXAMS = ["JEE_MAINS", "JEE_ADVANCED", "NEET", "OLYMPIAD", "CBSE"];
++
++/** Bank size per exam track. */
++export async function fetchBankExamDistribution(): Promise<Bucket[]> {
++    const counts = await Promise.all(BANK_EXAMS.map(e => fetchQuestionTotal({ exam_type: e })));
++    return BANK_EXAMS.map((e, i) => ({ label: e, count: counts[i] })).filter(b => b.count > 0);
++}
++
++// ---------------------------------------------------------------------------
++// POTD / QOTD — the schedule endpoint tells us which questions were served on a
++// given IST day for a class+exam. Per-student POTD attempts are NOT exposed
++// admin-wide, so solve counts / accuracy / timing are reported as unavailable.
++// ---------------------------------------------------------------------------
++
++export interface QotdSchedule {
++    id: string | null;
++    question_ids: string[];
++}
++
++/** The POTD scheduled for one day/class/exam (null-ish when nothing is set). */
++export async function fetchQotdSchedule(scheduled_date: string, class_id: string, exam_type: string): Promise<QotdSchedule | null> {
++    try {
++        const { data } = await apiClient.get("/api/v1/qotd/schedule", {
++            params: { scheduled_date, class_id, exam_type },
++        });
++        return { id: (data?.id as string) ?? null, question_ids: (data?.question_ids as string[]) ?? [] };
++    } catch {
++        return null; // 404 = nothing scheduled that day
++    }
++}
++
++/** Size of the POTD-eligible question pool for an exam track. */
++export async function fetchQotdEligibleTotal(exam_type: string): Promise<number> {
++    return fetchQuestionTotal({ is_qotd_eligible: true, exam_type });
++}
++
++export interface QotdHistoryDay {
++    date: string; // "YYYY-MM-DD"
++    scheduled: boolean;
++    questionCount: number;
++}
++
++/**
++ * POTD schedule across a date range for one class+exam. One request per IST day
++ * (bounded), run in parallel — this is the only POTD signal derivable without a
++ * per-student attempt feed.
++ */
++export async function fetchQotdHistory(
++    class_id: string,
++    exam_type: string,
++    from: string,
++    to: string,
++    maxDays = 60,
++): Promise<QotdHistoryDay[]> {
++    if (!class_id || !exam_type || !from || !to) return [];
++    const days = dateKeyRange(from, to).slice(-maxDays);
++    const results = await Promise.all(
++        days.map(async date => {
++            const sched = await fetchQotdSchedule(date, class_id, exam_type);
++            return { date, scheduled: Boolean(sched?.id), questionCount: sched?.question_ids.length ?? 0 };
++        }),
++    );
++    return results;
++}
++
+ // ---------------------------------------------------------------------------
+ // IST date helpers — the backend stores UTC; the app presents everything in IST
+ // (Asia/Kolkata). All bucketing (day/hour/weekday) is done in IST so numbers
