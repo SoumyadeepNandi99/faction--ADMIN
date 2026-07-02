@@ -19,7 +19,7 @@ const PALETTE = [
     "#10b981",
     "#ef4444",
     "#6366f1",
-    "#14b8a6",
+    "#41d6e0",
 ];
 
 function niceMax(v: number): number {

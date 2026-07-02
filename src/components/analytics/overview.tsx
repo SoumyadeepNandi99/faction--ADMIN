@@ -28,6 +28,22 @@ function KpiSkeleton() {
     );
 }
 
+// A labelled cluster of KPI cards — groups related metrics so the headline row
+// reads as three digestible themes instead of one wall of six numbers.
+function KpiGroup({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                    {label}
+                </span>
+                <div className="h-px flex-1 bg-border" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>
+        </div>
+    );
+}
+
 export function Overview({ filters }: { filters: Filters }) {
     const { users, loading: usersLoading } = useUsers();
     // Daily arena window drives "today"'s activity; all-time drives depth metrics.
@@ -68,73 +84,88 @@ export function Overview({ filters }: { filters: Filters }) {
 
     if (usersLoading) {
         return (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                    <KpiSkeleton key={i} />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-6">
+                {Array.from({ length: 3 }).map((_, g) => (
+                    <div key={g} className="flex flex-col gap-3">
+                        <Skeleton className="h-3 w-28 rounded" />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <KpiSkeleton />
+                            <KpiSkeleton />
+                        </div>
+                    </div>
                 ))}
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col gap-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                <KpiCard
-                    label="Total Students"
-                    value={totalStudents}
-                    icon={<Users className="h-5 w-5" />}
-                    sub={filtersActive ? "matching filters" : "registered"}
-                    delta={filtersActive ? undefined : snapshotDelta("totalStudents", globalStudents)}
-                    spark={filtersActive ? undefined : snapshotSeries("totalStudents")}
-                />
-                <KpiCard
-                    label="New (7 days)"
-                    value={new7d}
-                    icon={<UserPlus className="h-5 w-5" />}
-                    accent="blue"
-                    sub="recent sign-ups"
-                />
-                <KpiCard
-                    label="Active Solvers (Today)"
-                    value={activeSolversToday}
-                    icon={<Swords className="h-5 w-5" />}
-                    accent="purple"
-                    sub={activeSolversToday >= 100 ? "top 100 (capped)" : "solved ≥1 today"}
-                    delta={filtersActive ? undefined : snapshotDelta("activeSolversToday", activeSolversToday)}
-                    spark={filtersActive ? undefined : snapshotSeries("activeSolversToday")}
-                    unavailable={!arenaDailyLoading && arenaDaily.length === 0}
-                    unavailableReason="No arena activity recorded for today yet."
-                />
-                <KpiCard
-                    label="Questions Solved (Today)"
-                    value={questionsToday}
-                    icon={<CheckCircle2 className="h-5 w-5" />}
-                    accent="pink"
-                    sub={activeSolversToday >= 100 ? "among top 100 solvers" : "across all solvers"}
-                    delta={filtersActive ? undefined : snapshotDelta("questionsToday", questionsToday)}
-                    spark={filtersActive ? undefined : snapshotSeries("questionsToday")}
-                    unavailable={!arenaDailyLoading && arenaDaily.length === 0}
-                    unavailableReason="Derived from today's arena ranking, which is empty."
-                />
-                <KpiCard
-                    label="Avg Rating (Top 100)"
-                    value={avgRating}
-                    icon={<Star className="h-5 w-5" />}
-                    sub={rating.length ? `across ${rating.length} rated` : undefined}
-                    delta={filtersActive ? undefined : snapshotDelta("avgRating", avgRating)}
-                    spark={filtersActive ? undefined : snapshotSeries("avgRating")}
-                    unavailable={!ratingLoading && rating.length === 0}
-                    unavailableReason="Rating ranking returned no rows."
-                />
-                <KpiCard
-                    label="Longest Active Streak"
-                    value={longestStreak}
-                    icon={<Flame className="h-5 w-5" />}
-                    accent="pink"
-                    sub={longestStreak ? "days (current cohort)" : undefined}
-                    unavailable={streak.length === 0}
-                    unavailableReason="Streak ranking returned no rows."
-                />
+        <div className="flex flex-col gap-6">
+            {/* Headline KPIs, grouped into three readable themes. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-6">
+                <KpiGroup label="Audience">
+                    <KpiCard
+                        label="Total Students"
+                        value={totalStudents}
+                        icon={<Users className="h-5 w-5" />}
+                        sub={filtersActive ? "matching filters" : "registered"}
+                        delta={filtersActive ? undefined : snapshotDelta("totalStudents", globalStudents)}
+                        spark={filtersActive ? undefined : snapshotSeries("totalStudents")}
+                    />
+                    <KpiCard
+                        label="New (7 days)"
+                        value={new7d}
+                        icon={<UserPlus className="h-5 w-5" />}
+                        accent="blue"
+                        sub="recent sign-ups"
+                    />
+                </KpiGroup>
+
+                <KpiGroup label="Today's Activity">
+                    <KpiCard
+                        label="Active Solvers"
+                        value={activeSolversToday}
+                        icon={<Swords className="h-5 w-5" />}
+                        accent="purple"
+                        sub={activeSolversToday >= 100 ? "top 100 (capped)" : "solved ≥1 today"}
+                        delta={filtersActive ? undefined : snapshotDelta("activeSolversToday", activeSolversToday)}
+                        spark={filtersActive ? undefined : snapshotSeries("activeSolversToday")}
+                        unavailable={!arenaDailyLoading && arenaDaily.length === 0}
+                        unavailableReason="No arena activity recorded for today yet."
+                    />
+                    <KpiCard
+                        label="Questions Solved"
+                        value={questionsToday}
+                        icon={<CheckCircle2 className="h-5 w-5" />}
+                        accent="pink"
+                        sub={activeSolversToday >= 100 ? "among top 100 solvers" : "across all solvers"}
+                        delta={filtersActive ? undefined : snapshotDelta("questionsToday", questionsToday)}
+                        spark={filtersActive ? undefined : snapshotSeries("questionsToday")}
+                        unavailable={!arenaDailyLoading && arenaDaily.length === 0}
+                        unavailableReason="Derived from today's arena ranking, which is empty."
+                    />
+                </KpiGroup>
+
+                <KpiGroup label="Competitive Health">
+                    <KpiCard
+                        label="Avg Rating (Top 100)"
+                        value={avgRating}
+                        icon={<Star className="h-5 w-5" />}
+                        sub={rating.length ? `across ${rating.length} rated` : undefined}
+                        delta={filtersActive ? undefined : snapshotDelta("avgRating", avgRating)}
+                        spark={filtersActive ? undefined : snapshotSeries("avgRating")}
+                        unavailable={!ratingLoading && rating.length === 0}
+                        unavailableReason="Rating ranking returned no rows."
+                    />
+                    <KpiCard
+                        label="Longest Active Streak"
+                        value={longestStreak}
+                        icon={<Flame className="h-5 w-5" />}
+                        accent="pink"
+                        sub={longestStreak ? "days (current cohort)" : undefined}
+                        unavailable={streak.length === 0}
+                        unavailableReason="Streak ranking returned no rows."
+                    />
+                </KpiGroup>
             </div>
 
             <ArenaHealth

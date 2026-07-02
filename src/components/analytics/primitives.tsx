@@ -2,7 +2,7 @@
 
 /**
  * Presentational building blocks for the analytics dashboard. These match the
- * existing admin design language: `glass-card` surfaces, brand-teal accents,
+ * existing admin design language: `glass-card` surfaces, brand-magenta accents,
  * muted-foreground secondary text.
  */
 
