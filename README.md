@@ -1,5 +1,30 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Founder Analytics dashboard
+
+The **Founder Analytics** page (`/analytics`) shows habit-forming engagement KPIs
+(DAU/WAU/MAU, stickiness, activation, retention cohorts, streaks, feature-usage
+funnels, learning outcomes, monetization & notifications). Unlike the rest of the
+panel — which talks to `faction-backend` over its REST API — these are *aggregate*
+metrics that the REST surface doesn't expose, so the dashboard reads the
+faction-backend Postgres (Supabase) database **directly and read-only** from this
+app's own server routes (`src/app/api/analytics/*`).
+
+**Setup:** copy `.env.local.example` → `.env.local` and set a **read-only**
+connection string:
+
+```bash
+# Supabase → Project Settings → Database → Connection string → Transaction pooler
+ANALYTICS_DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+```
+
+The connection is forced read-only at three layers (session
+`default_transaction_read_only`, an explicit `READ ONLY` transaction per query,
+and a SELECT/WITH-only guard), so it can never write to the DB. Every route is
+gated behind the same ADMIN session the rest of the CRM uses. Until the env var
+is set, each card renders an "Analytics DB not connected" state rather than
+crashing.
+
 ## Getting Started
 
 First, run the development server:
