@@ -157,6 +157,7 @@ export interface OutcomesData {
     };
     bySubject: { label: string; count: number }[];
     byExam: { label: string; count: number }[];
+    trend: { day: string; solved: number; cumulative: number }[];
 }
 
 export interface MonetizationData {

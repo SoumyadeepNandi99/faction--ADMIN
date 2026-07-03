@@ -7,7 +7,7 @@
  * One failing query never blanks the page.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
     Activity,
     AlertTriangle,
@@ -466,6 +466,13 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
     const subjectTotal = bySubject.reduce((a, b) => a + b.count, 0);
     const subjectPct = (c: number) => (subjectTotal > 0 ? `${Math.round((100 * c) / subjectTotal)}%` : "");
 
+    // Solved-over-time trend: cumulative growth line vs per-day bars.
+    const [trendMode, setTrendMode] = useState<"cumulative" | "daily">("cumulative");
+    const trend = useMemo(() => data?.trend ?? [], [data]);
+    const trendLabels = useMemo(() => trend.map(p => p.day.slice(5)), [trend]);
+    const cumulativeSeries = useMemo(() => trend.map(p => p.cumulative), [trend]);
+    const dailyBars = useMemo(() => trend.map(p => ({ label: p.day.slice(5), count: p.solved })), [trend]);
+
     return (
         <Section
             title="Learning Outcomes"
@@ -494,6 +501,43 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                 <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} accent="purple" icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy" />
                 <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub={solveRate != null ? `correct + wrong · ${solveRate}% solved` : "correct + wrong"} />
             </KpiStrip>
+
+            {/* Questions solved over time — the growth trend ("stocks" view). */}
+            <Card
+                title="Questions Solved Over Time"
+                subtitle={trendMode === "cumulative" ? "Cumulative solves (growth)" : "Solves per day (IST)"}
+                right={
+                    <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
+                        {(["cumulative", "daily"] as const).map(m => (
+                            <button
+                                key={m}
+                                onClick={() => setTrendMode(m)}
+                                className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
+                                    trendMode === m ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                }`}
+                            >
+                                {m}
+                            </button>
+                        ))}
+                    </div>
+                }
+            >
+                {loading ? (
+                    <ChartSkeleton height={240} />
+                ) : error ? (
+                    <ErrorState {...errParts(error)} />
+                ) : trend.length >= 2 ? (
+                    trendMode === "cumulative" ? (
+                        <AreaChart points={cumulativeSeries} labels={trendLabels} height={240} valueLabel="total solved" />
+                    ) : (
+                        <BarChart data={dailyBars} height={240} labelEvery={Math.max(1, Math.ceil(dailyBars.length / 12))} />
+                    )
+                ) : trend.length === 1 ? (
+                    <EmptyState message="Only one day of solving activity so far — the trend line appears once there are at least two days." />
+                ) : (
+                    <EmptyState message="No solving activity in the selected range." />
+                )}
+            </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card title="PYQ vs Other" subtitle="Solves by source">
