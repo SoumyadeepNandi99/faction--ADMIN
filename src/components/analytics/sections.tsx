@@ -1,222 +1,423 @@
 "use client";
 
+/**
+ * The six Founder Analytics sections, each backed by a read-only SQL endpoint.
+ * Every card guards its own state independently:
+ *   loading → skeleton, error → ErrorState, no rows → EmptyState / "—".
+ * One failing query never blanks the page.
+ */
+
 import { useMemo } from "react";
-import useSWR from "swr";
 import {
-    TrendingUp,
-    Swords,
+    Activity,
+    AlertTriangle,
+    BookOpenCheck,
+    CalendarClock,
+    CheckCircle2,
+    CreditCard,
     Flame,
-    Star,
-    Award,
+    Layers,
+    MessageSquare,
     Repeat,
-    Clock,
-    PieChart,
-    MapPin,
+    Rocket,
+    Star,
+    Swords,
+    TrendingUp,
+    Trophy,
+    UserPlus,
+    Users,
+    Zap,
 } from "lucide-react";
+import { AreaChart, BarChart, DonutChart, HBarList, ProgressBar } from "./charts";
 import {
-    bucketize,
-    categoryCounts,
-    fetchContestRanking,
-    hourDistribution,
-    multiCategoryCounts,
-    registrationSeries,
-    weekdayDistribution,
-    istParts,
-    type ContestRow,
-} from "@/lib/api/analytics";
-import { useArena, useClasses, useContests, useRating, useStreak, useUsers } from "./data";
-import { matchUser, type Filters } from "./filters";
-import { Card, DataTable, EmptyState, RankBadge, Section, Stat, UnavailablePill, type Column } from "./primitives";
-import { AreaChart, BarChart, DonutChart, HBarList, Heatmap } from "./charts";
+    Card,
+    EmptyState,
+    ErrorState,
+    KpiCard,
+    Section,
+    Stat,
+    UnavailablePill,
+} from "./primitives";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatExamType } from "@/lib/exam-types";
+import {
+    useActivation,
+    useEngagement,
+    useFeatures,
+    useMonetization,
+    useOutcomes,
+    useStreaks,
+} from "./data";
+import { AnalyticsFetchError, type Filters } from "@/lib/api/analytics";
+import { formatDate } from "@/lib/datetime";
+import { humanHours, kpi, n, pct } from "./format";
+
+// ---------------------------------------------------------------------------
+// shared helpers
+// ---------------------------------------------------------------------------
+function errParts(error: unknown): { code?: string; detail?: string } {
+    if (error instanceof AnalyticsFetchError) return { code: error.code, detail: error.detail };
+    if (error instanceof Error) return { detail: error.message };
+    return {};
+}
 
 function ChartSkeleton({ height = 200 }: { height?: number }) {
     return <Skeleton className="w-full rounded-xl" style={{ height }} />;
 }
 
-// A small avatar-less name cell shared by ranking tables.
-function NameCell({ name }: { name: string }) {
+function KpiSkeleton() {
     return (
-        <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 shrink-0 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-600 dark:text-brand-400 font-bold border border-brand-500/20 text-xs">
-                {name?.[0]?.toUpperCase() || "?"}
+        <div className="glass-card p-5 flex flex-col gap-3">
+            <div className="flex justify-between">
+                <Skeleton className="h-4 w-24 rounded" />
+                <Skeleton className="h-8 w-8 rounded-lg" />
             </div>
-            <span className="truncate font-medium">{name || "Unknown"}</span>
+            <Skeleton className="h-8 w-20 rounded" />
+            <Skeleton className="h-3 w-28 rounded" />
+        </div>
+    );
+}
+
+/** Render a strip of KPI cards, or a single error/skeleton spanning the grid. */
+function KpiStrip({
+    loading,
+    error,
+    count,
+    children,
+}: {
+    loading: boolean;
+    error: unknown;
+    count: number;
+    children: React.ReactNode;
+}) {
+    if (loading) {
+        return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {Array.from({ length: count }).map((_, i) => (
+                    <KpiSkeleton key={i} />
+                ))}
+            </div>
+        );
+    }
+    if (error) {
+        const { code, detail } = errParts(error);
+        return (
+            <div className="glass-card p-6">
+                <ErrorState code={code} detail={detail} />
+            </div>
+        );
+    }
+    return <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">{children}</div>;
+}
+
+// ===========================================================================
+// 1. NORTH STAR & ENGAGEMENT
+// ===========================================================================
+export function EngagementSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useEngagement(filters);
+    const s = data?.summary;
+
+    const solversSeries = useMemo(() => data?.solvers.map(p => p.value) ?? [], [data]);
+    const solversLabels = useMemo(() => data?.solvers.map(p => p.day.slice(5)) ?? [], [data]);
+    const signupsBars = useMemo(() => data?.signups.map(p => ({ label: p.day.slice(5), count: p.value })) ?? [], [data]);
+    const dauSpark = useMemo(() => solversSeries.slice(-14), [solversSeries]);
+
+    return (
+        <Section
+            title="North Star & Engagement"
+            description="Daily active solvers and the habit ratio that explains it"
+            icon={<Activity className="h-5 w-5" />}
+        >
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard
+                    label="Daily Active Solvers"
+                    value={kpi(s?.dau)}
+                    icon={<Zap className="h-5 w-5" />}
+                    sub="distinct solvers today (IST)"
+                    spark={dauSpark.length >= 2 ? dauSpark : undefined}
+                />
+                <KpiCard
+                    label="Weekly Active Solvers"
+                    value={kpi(s?.wau)}
+                    accent="blue"
+                    icon={<Users className="h-5 w-5" />}
+                    sub="last 7 days"
+                />
+                <KpiCard
+                    label="Monthly Active Solvers"
+                    value={kpi(s?.mau)}
+                    accent="purple"
+                    icon={<Users className="h-5 w-5" />}
+                    sub="last 30 days"
+                />
+                <KpiCard
+                    label="Stickiness (DAU/MAU)"
+                    value={pct(s?.stickiness_pct)}
+                    accent="pink"
+                    icon={<Repeat className="h-5 w-5" />}
+                    sub={s && s.stickiness_pct != null && s.stickiness_pct >= 20 ? "healthy (≥20%)" : "target ≥20%"}
+                />
+                <KpiCard
+                    label="Questions / Active User / Day"
+                    value={kpi(s?.questions_per_active_user)}
+                    icon={<CheckCircle2 className="h-5 w-5" />}
+                    sub="avg on active days"
+                />
+                <KpiCard
+                    label="Total Students"
+                    value={kpi(s?.total_students)}
+                    icon={<Users className="h-5 w-5" />}
+                    sub="matching filters"
+                />
+                <KpiCard
+                    label="New Signups"
+                    value={kpi(s?.new_signups)}
+                    accent="blue"
+                    icon={<UserPlus className="h-5 w-5" />}
+                    sub="in selected range"
+                />
+                <KpiCard
+                    label="Growth vs Prev Period"
+                    value={pct(s?.growth_pct)}
+                    accent={s && s.growth_pct != null && s.growth_pct < 0 ? "pink" : "brand"}
+                    icon={<TrendingUp className="h-5 w-5" />}
+                    sub={`${n(s?.prev_signups)} previous`}
+                />
+            </KpiStrip>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card title="Daily Active Solvers" subtitle="Distinct users with ≥1 attempt (IST day)">
+                    {loading ? (
+                        <ChartSkeleton />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : solversSeries.length >= 2 ? (
+                        <AreaChart points={solversSeries} labels={solversLabels} />
+                    ) : (
+                        <EmptyState message="Not enough activity history to plot a trend yet." />
+                    )}
+                </Card>
+                <Card title="New Signups / Day">
+                    {loading ? (
+                        <ChartSkeleton />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : signupsBars.length >= 2 ? (
+                        <BarChart data={signupsBars} color="var(--color-accent-blue)" labelEvery={Math.max(1, Math.ceil(signupsBars.length / 12))} />
+                    ) : (
+                        <EmptyState message="Not enough signup history to plot." />
+                    )}
+                </Card>
+            </div>
+        </Section>
+    );
+}
+
+// ===========================================================================
+// 2. ACTIVATION & RETENTION
+// ===========================================================================
+export function ActivationSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useActivation(filters);
+    const s = data?.summary;
+    const cohorts = data?.cohorts ?? [];
+
+    return (
+        <Section
+            title="Activation & Retention"
+            description="Do new users reach the first solve — and do they come back?"
+            icon={<Rocket className="h-5 w-5" />}
+        >
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard label="Activation Rate (48h)" value={pct(s?.activation_pct)} icon={<Rocket className="h-5 w-5" />} sub="solve ≥1 Q within 48h of signup" />
+                <KpiCard label="Activated Users" value={kpi(s?.activated_48h)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub={`of ${n(s?.signups)} signups`} />
+                <KpiCard label="Median Time to First Solve" value={humanHours(s?.median_hours_to_first_solve)} accent="purple" icon={<Zap className="h-5 w-5" />} sub="signup → first attempt" />
+                <KpiCard label="Signups (range)" value={kpi(s?.signups)} icon={<UserPlus className="h-5 w-5" />} sub="cohort size" />
+            </KpiStrip>
+
+            <Card title="Retention by Weekly Signup Cohort" subtitle="% of each week's new users active again on day 1 / 7 / 30 (IST)">
+                {loading ? (
+                    <ChartSkeleton height={180} />
+                ) : error ? (
+                    <ErrorState {...errParts(error)} />
+                ) : cohorts.length === 0 ? (
+                    <EmptyState message="No signup cohorts in range." />
+                ) : (
+                    <CohortTable cohorts={cohorts} />
+                )}
+            </Card>
+        </Section>
+    );
+}
+
+function CohortTable({ cohorts }: { cohorts: NonNullable<ReturnType<typeof useActivation>["data"]>["cohorts"] }) {
+    const cell = (val: number, pctVal: number | null, elapsed: boolean) => {
+        if (!elapsed) return <span className="text-muted-foreground/50 text-xs">pending</span>;
+        const p = pctVal ?? 0;
+        const bg = `color-mix(in srgb, var(--color-brand-500) ${Math.round(12 + Math.min(p, 100) * 0.7)}%, transparent)`;
+        return (
+            <span className="inline-flex items-center justify-center rounded-md px-2 py-1 text-xs font-semibold tabular-nums" style={{ background: bg }}>
+                {pctVal == null ? "—" : `${pctVal}%`}
+                <span className="ml-1 text-[10px] font-normal text-muted-foreground">({val})</span>
+            </span>
+        );
+    };
+    return (
+        <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+                <thead>
+                    <tr className="border-b border-(--border) text-left text-xs text-muted-foreground">
+                        <th className="pb-2 px-2 font-medium">Cohort week</th>
+                        <th className="pb-2 px-2 font-medium text-right">Size</th>
+                        <th className="pb-2 px-2 font-medium text-center">D1</th>
+                        <th className="pb-2 px-2 font-medium text-center">D7</th>
+                        <th className="pb-2 px-2 font-medium text-center">D30</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-(--border)">
+                    {cohorts.map(c => (
+                        <tr key={c.cohort_week} className="hover:bg-foreground/[0.03]">
+                            <td className="py-2.5 px-2 font-medium text-foreground">{formatDate(c.cohort_week)}</td>
+                            <td className="py-2.5 px-2 text-right tabular-nums text-muted-foreground">{c.size.toLocaleString()}</td>
+                            <td className="py-2.5 px-2 text-center">{cell(c.d1, c.d1_pct, true)}</td>
+                            <td className="py-2.5 px-2 text-center">{cell(c.d7, c.d7_pct, c.d7_elapsed)}</td>
+                            <td className="py-2.5 px-2 text-center">{cell(c.d30, c.d30_pct, c.d30_elapsed)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     );
 }
 
 // ===========================================================================
-// GROWTH — registrations over time (derived from users.created_at, IST days)
-// ===========================================================================
-export function GrowthSection({ filters }: { filters: Filters }) {
-    const { users, loading } = useUsers();
-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
-    const series = useMemo(() => registrationSeries(students), [students]);
-
-    const cumulative = series.map(p => p.cumulative);
-    const daily = series.map(p => ({ label: p.date.slice(5), count: p.count }));
-    const labels = series.map(p => p.date.slice(5));
-
-    return (
-        <Section title="Growth" description="Student registrations over time (IST)" icon={<TrendingUp className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Cumulative Students" subtitle={series.length ? `${series[0].date} → ${series[series.length - 1].date}` : undefined}>
-                    {loading ? <ChartSkeleton /> : series.length >= 2 ? <AreaChart points={cumulative} labels={labels} /> : <EmptyState message="Not enough registration history to plot growth." />}
-                </Card>
-                <Card title="New Registrations / Day">
-                    {loading ? (
-                        <ChartSkeleton />
-                    ) : daily.length >= 2 ? (
-                        <BarChart data={daily} labelEvery={Math.max(1, Math.ceil(daily.length / 12))} color="var(--color-accent-blue)" />
-                    ) : (
-                        <EmptyState message="Not enough registration history." />
-                    )}
-                </Card>
-            </div>
-        </Section>
-    );
-}
-
-// ===========================================================================
-// PROBLEM SOLVING — arena (all-time) depth & top solvers
-// ===========================================================================
-export function ProblemSolvingSection({ filters }: { filters: Filters }) {
-    const { rows, loading } = useArena(undefined, filters.examType || undefined); // all-time
-    const solved = rows.map(r => r.questions_solved);
-    const dist = useMemo(
-        () =>
-            bucketize(solved, [
-                { label: "0", min: 0, max: 0 },
-                { label: "1–10", min: 1, max: 10 },
-                { label: "11–50", min: 11, max: 50 },
-                { label: "51–100", min: 51, max: 100 },
-                { label: "101–250", min: 101, max: 250 },
-                { label: "251–500", min: 251, max: 500 },
-                { label: "500+", min: 501 },
-            ]),
-        [solved],
-    );
-
-    const cols: Column<(typeof rows)[number]>[] = [
-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "solved", header: "Solved", render: r => <span className="font-bold tabular-nums">{(r.questions_solved ?? 0).toLocaleString()}</span>, align: "right" },
-    ];
-
-    return (
-        <Section title="Problem Solving" description="Arena all-time depth (top 100 solvers)" icon={<Swords className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Solved-Count Distribution" subtitle="How deep the top cohort has gone">
-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} /> : <EmptyState message="Arena ranking returned no rows." />}
-                </Card>
-                <Card title="Top Solvers">
-                    {loading ? (
-                        <ChartSkeleton />
-                    ) : rows.length ? (
-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" />
-                    ) : (
-                        <EmptyState message="Arena ranking returned no rows." />
-                    )}
-                </Card>
-            </div>
-        </Section>
-    );
-}
-
-// ===========================================================================
-// RATING — distribution across the rated cohort + top rated
-// ===========================================================================
-export function RatingSection({ filters }: { filters: Filters }) {
-    const { rows, loading } = useRating(filters.examType || undefined);
-    const dist = useMemo(
-        () =>
-            bucketize(
-                rows.map(r => r.current_rating),
-                [
-                    { label: "< 800", min: 0, max: 799 },
-                    { label: "800–999", min: 800, max: 999 },
-                    { label: "1000–1199", min: 1000, max: 1199 },
-                    { label: "1200–1399", min: 1200, max: 1399 },
-                    { label: "1400–1599", min: 1400, max: 1599 },
-                    { label: "1600+", min: 1600 },
-                ],
-            ),
-        [rows],
-    );
-    const titles = useMemo(() => categoryCounts(rows, r => r.title || "Unrated"), [rows]);
-
-    const cols: Column<(typeof rows)[number]>[] = [
-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "title", header: "Title", render: r => <span className="text-xs text-muted-foreground">{r.title || "—"}</span> },
-        { key: "rating", header: "Rating", render: r => <span className="font-bold tabular-nums">{(r.current_rating ?? 0).toLocaleString()}</span>, align: "right" },
-        { key: "peak", header: "Peak", render: r => <span className="text-muted-foreground tabular-nums">{(r.max_rating ?? 0).toLocaleString()}</span>, align: "right" },
-    ];
-
-    return (
-        <Section title="Rating" description="Competitive rating spread (top 100)" icon={<Star className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Rating Bands">
-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="Rating ranking returned no rows." />}
-                </Card>
-                <Card title="Titles">
-                    {loading ? <ChartSkeleton /> : titles.length ? <DonutChart data={titles} /> : <EmptyState message="No title data available." />}
-                </Card>
-                <Card title="Top Rated" className="lg:col-span-2">
-                    {loading ? (
-                        <ChartSkeleton />
-                    ) : rows.length ? (
-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" />
-                    ) : (
-                        <EmptyState message="Rating ranking returned no rows." />
-                    )}
-                </Card>
-            </div>
-        </Section>
-    );
-}
-
-// ===========================================================================
-// STREAK — consistency across the streak cohort
+// 3. HABIT & STREAKS
 // ===========================================================================
 export function StreakSection({ filters }: { filters: Filters }) {
-    const { rows, loading } = useStreak(filters.examType || undefined);
-    const dist = useMemo(
+    const { data, error, loading } = useStreaks(filters);
+    const s = data?.summary;
+    const dist = data?.distribution ?? [];
+
+    return (
+        <Section title="Habit & Streaks" description="Daily-habit consistency across the student base" icon={<Flame className="h-5 w-5" />}>
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard label="On an Active Streak" value={pct(s?.on_streak_pct)} icon={<Flame className="h-5 w-5" />} sub={`${n(s?.on_streak_now)} of ${n(s?.total_with_stats)} users`} />
+                <KpiCard label="Avg Current Streak" value={kpi(s?.avg_current_streak)} accent="blue" icon={<Activity className="h-5 w-5" />} sub="days" />
+                <KpiCard label="Best Streak" value={kpi(s?.best_streak)} accent="purple" icon={<Trophy className="h-5 w-5" />} sub="days (all-time)" />
+                <KpiCard label="Streak ≥ 7 / ≥ 30" value={`${n(s?.streak_7plus)} / ${n(s?.streak_30plus)}`} accent="pink" icon={<Star className="h-5 w-5" />} sub="committed users" />
+            </KpiStrip>
+
+            <Card title="Current-Streak Distribution" subtitle="How many students sit in each streak band">
+                {loading ? (
+                    <ChartSkeleton />
+                ) : error ? (
+                    <ErrorState {...errParts(error)} />
+                ) : dist.length ? (
+                    <HBarList data={dist} colorByIndex />
+                ) : (
+                    <EmptyState message="No study-stats rows for the current filters." />
+                )}
+            </Card>
+        </Section>
+    );
+}
+
+// ===========================================================================
+// 4. FEATURE USAGE
+// ===========================================================================
+export function FeatureUsageSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useFeatures(filters);
+    const potd = data?.potd;
+    const ct = data?.customTest;
+    const contest = data?.contest;
+    const doubt = data?.doubt;
+    const reach = data?.reach;
+
+    const funnel = useMemo(
         () =>
-            bucketize(
-                rows.map(r => r.streak_count),
-                [
-                    { label: "1–2 days", min: 1, max: 2 },
-                    { label: "3–6 days", min: 3, max: 6 },
-                    { label: "1–2 weeks", min: 7, max: 14 },
-                    { label: "2–4 weeks", min: 15, max: 30 },
-                    { label: "1–3 months", min: 31, max: 90 },
-                    { label: "3 months+", min: 91 },
-                ],
-            ),
-        [rows],
+            ct
+                ? [
+                      { label: "Not started", count: ct.not_started },
+                      { label: "Active", count: ct.active },
+                      { label: "Finished", count: ct.finished },
+                  ]
+                : [],
+        [ct],
     );
-    const cols: Column<(typeof rows)[number]>[] = [
-        { key: "rank", header: "#", render: (_r, i) => <RankBadge rank={i + 1} />, align: "center", className: "w-10" },
-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "streak", header: "Streak", render: r => <span className="font-bold tabular-nums">{(r.streak_count ?? 0).toLocaleString()} days</span>, align: "right" },
-    ];
+
+    const reachBars = useMemo(
+        () =>
+            reach
+                ? [
+                      { label: "POTD", count: reach.potd_pct ?? 0 },
+                      { label: "Custom Test", count: reach.custom_test_pct ?? 0 },
+                      { label: "Contest", count: reach.contest_pct ?? 0 },
+                      { label: "Doubt Forum", count: reach.doubt_pct ?? 0 },
+                  ]
+                : [],
+        [reach],
+    );
 
     return (
-        <Section title="Streaks" description="Daily-habit consistency (top 100)" icon={<Flame className="h-5 w-5" />}>
+        <Section title="Feature Usage" description="Which features the active base actually touches" icon={<Layers className="h-5 w-5" />}>
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard label="POTD Participation" value={pct(potd?.participation_pct)} icon={<CalendarClock className="h-5 w-5" />} sub={potd?.potd_day ? `${n(potd.attempters)}/${n(potd.dau)} DAU · ${formatDate(potd.potd_day)}` : "latest POTD"} />
+                <KpiCard label="POTD Solve Rate" value={pct(potd?.solve_rate_pct)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub="correct ÷ attempted" />
+                <KpiCard label="Users Generating Tests" value={pct(ct?.generating_pct)} accent="purple" icon={<BookOpenCheck className="h-5 w-5" />} sub={`${n(ct?.users_with_test)} users · ${n(ct?.total_tests)} tests`} />
+                <KpiCard label="Contest Missed Rate" value={pct(contest?.missed_pct)} accent="pink" icon={<AlertTriangle className="h-5 w-5" />} sub={`${n(contest?.participants)} participants`} />
+            </KpiStrip>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Streak Distribution">
-                    {loading ? <ChartSkeleton /> : rows.length ? <HBarList data={dist} colorByIndex /> : <EmptyState message="Streak ranking returned no rows." />}
-                </Card>
-                <Card title="Longest Streaks">
+                <Card title="Custom-Test Funnel" subtitle="not_started → active → finished">
                     {loading ? (
-                        <ChartSkeleton />
-                    ) : rows.length ? (
-                        <DataTable columns={cols} rows={rows} searchable searchKeys={r => r.user_name} searchPlaceholder="Search students…" pageSize={8} />
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : ct && ct.total_tests > 0 ? (
+                        <HBarList data={funnel} colorByIndex valueFormatter={v => v.toLocaleString()} />
                     ) : (
-                        <EmptyState message="Streak ranking returned no rows." />
+                        <EmptyState message="No custom tests generated for the current filters." />
+                    )}
+                </Card>
+                <Card title="Weekly Feature Reach" subtitle={reach ? `% of ${reach.wau.toLocaleString()} WAU touching each feature` : "% of WAU touching each feature"}>
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : reach && reach.wau > 0 ? (
+                        <HBarList data={reachBars} max={100} valueFormatter={v => `${v}%`} colorByIndex />
+                    ) : (
+                        <EmptyState message="No weekly active users to measure reach against." />
+                    )}
+                </Card>
+                <Card title="Contests" subtitle="Participation & accuracy">
+                    {loading ? (
+                        <ChartSkeleton height={120} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : contest && contest.entries > 0 ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <Stat label="Contests" value={contest.contests} />
+                            <Stat label="Entries" value={contest.entries} />
+                            <Stat label="Missed" value={`${contest.missed} (${pct(contest.missed_pct)})`} />
+                            <Stat label="Avg Accuracy" value={pct(contest.avg_accuracy_pct)} />
+                        </div>
+                    ) : (
+                        <EmptyState message="No contest leaderboard entries yet." />
+                    )}
+                </Card>
+                <Card title="Doubt Forum" subtitle="Community Q&A activity">
+                    {loading ? (
+                        <ChartSkeleton height={120} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : doubt && (doubt.posts > 0 || doubt.comments > 0) ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <Stat label="Posts" value={doubt.posts} hint={`${doubt.posters} posters`} />
+                            <Stat label="Comments" value={doubt.comments} />
+                            <Stat label="Solved" value={doubt.solved} />
+                            <Stat label="% Solved" value={pct(doubt.solved_pct)} />
+                        </div>
+                    ) : (
+                        <EmptyState message="No doubt-forum posts or comments in range." />
                     )}
                 </Card>
             </div>
@@ -225,74 +426,103 @@ export function StreakSection({ filters }: { filters: Filters }) {
 }
 
 // ===========================================================================
-// CONTESTS — schedule cadence + participation (class-scoped)
+// 5. LEARNING OUTCOMES
 // ===========================================================================
-function contestMonthKey(c: ContestRow): string | null {
-    const p = istParts(c.starts_at || c.created_at);
-    return p ? p.dateKey.slice(0, 7) : null; // YYYY-MM
-}
+export function LearningOutcomesSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useOutcomes(filters);
+    const s = data?.summary;
 
-export function ContestSection() {
-    const { contests, loading } = useContests();
-
-    // Classify by the backend-provided status (avoids clock reads in render):
-    // "finished" contests are completed; anything else is upcoming/ongoing.
-    const past = contests.filter(c => c.status === "finished");
-    const upcoming = contests.filter(c => c.status !== "finished");
-
-    const byMonth = useMemo(() => {
-        const m = new Map<string, number>();
-        for (const c of contests) {
-            const k = contestMonthKey(c);
-            if (k) m.set(k, (m.get(k) ?? 0) + 1);
-        }
-        return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => ({ label: label.slice(2), count }));
-    }, [contests]);
-
-    // Participation for the most-recent past contest. Backend scopes the ranking
-    // to the admin's class, so this legitimately may come back empty.
-    const recent = useMemo(
-        () => [...past].sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())[0] ?? null,
-        [past],
+    const diffMix = useMemo(
+        () =>
+            s
+                ? [
+                      { label: "Easy", count: s.easy_solved },
+                      { label: "Medium", count: s.medium_solved },
+                      { label: "Hard", count: s.hard_solved },
+                  ]
+                : [],
+        [s],
     );
-    const { data: ranking, isLoading: rankingLoading } = useSWR(
-        recent ? `analytics:contest-ranking:${recent.id}` : null,
-        () => fetchContestRanking(recent!.id),
-        { revalidateOnFocus: false, dedupingInterval: 300_000 },
-    );
-
-    const cols: Column<NonNullable<typeof ranking>["rows"][number]>[] = [
-        { key: "rank", header: "#", render: (r, i) => <RankBadge rank={r.rank ?? i + 1} />, align: "center", className: "w-10" },
-        { key: "name", header: "Student", render: r => <NameCell name={r.user_name} /> },
-        { key: "acc", header: "Accuracy", render: r => <span className="text-muted-foreground tabular-nums">{Math.round((r.accuracy || 0) * 100)}%</span>, align: "right" },
-        { key: "score", header: "Score", render: r => <span className="font-bold tabular-nums">{(r.score ?? 0).toLocaleString()}</span>, align: "right" },
-    ];
+    const hasDiff = diffMix.some(d => d.count > 0);
 
     return (
-        <Section title="Contests" description="Assessment cadence & participation" icon={<Award className="h-5 w-5" />}>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Card><Stat label="Total Contests" value={loading ? "…" : contests.length} /></Card>
-                <Card><Stat label="Upcoming" value={loading ? "…" : upcoming.length} /></Card>
-                <Card><Stat label="Completed" value={loading ? "…" : past.length} /></Card>
-                <Card><Stat label="This Month" value={loading ? "…" : (byMonth.at(-1)?.count ?? 0)} hint="scheduled" /></Card>
-            </div>
+        <Section title="Learning Outcomes" description="Accuracy, difficulty mix and weak topics" icon={<BookOpenCheck className="h-5 w-5" />}>
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy_rate" />
+                <KpiCard label="Total Solved (E/M/H)" value={s ? `${n(s.easy_solved)}/${n(s.medium_solved)}/${n(s.hard_solved)}` : "—"} accent="blue" icon={<Swords className="h-5 w-5" />} sub="by difficulty" />
+                <KpiCard label="Users w/ Weak Topics" value={kpi(s?.users_with_weak_topics)} accent="purple" icon={<AlertTriangle className="h-5 w-5" />} sub="flagged for review" unavailable={s != null && s.users_with_weak_topics === 0} unavailableReason="No weak-topic rows recorded yet (feature just launched)." />
+                <KpiCard label="Avg Weakness Score" value={kpi(s?.avg_weakness_score)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="higher = weaker" unavailable={s != null && s.avg_weakness_score == null} unavailableReason="No weak-topic rows to average yet." />
+            </KpiStrip>
+
+            <Card title="Difficulty Mix Solved" subtitle="Aggregate solved counts by difficulty">
+                {loading ? (
+                    <ChartSkeleton height={160} />
+                ) : error ? (
+                    <ErrorState {...errParts(error)} />
+                ) : hasDiff ? (
+                    <DonutChart data={diffMix} />
+                ) : (
+                    <EmptyState message="No solved-question difficulty data for the current filters." />
+                )}
+            </Card>
+        </Section>
+    );
+}
+
+// ===========================================================================
+// 6. MONETIZATION & NOTIFICATIONS
+// ===========================================================================
+export function MonetizationSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useMonetization(filters);
+    const s = data?.summary;
+
+    const mix = useMemo(
+        () =>
+            s
+                ? [
+                      { label: "Free", count: s.free },
+                      { label: "Premium", count: s.premium },
+                  ]
+                : [],
+        [s],
+    );
+
+    return (
+        <Section title="Monetization & Notifications" description="Plan mix, notification engagement and push reach" icon={<CreditCard className="h-5 w-5" />}>
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard label="Premium Share" value={pct(s?.premium_pct)} icon={<CreditCard className="h-5 w-5" />} sub={`${n(s?.premium)} premium · ${n(s?.free)} free`} />
+                <KpiCard label="Notification Read Rate" value={pct(s?.notif_read_pct)} accent="blue" icon={<MessageSquare className="h-5 w-5" />} sub={`${n(s?.notif_read)} / ${n(s?.notif_total)} read`} />
+                <KpiCard label="Push Reachability" value={pct(s?.push_reach_pct)} accent="purple" icon={<Zap className="h-5 w-5" />} sub={`${n(s?.push_reachable_users)} of ${n(s?.total_students)} students`} />
+                <KpiCard label="Total Notifications" value={kpi(s?.notif_total)} accent="pink" icon={<MessageSquare className="h-5 w-5" />} sub="in selected range" />
+            </KpiStrip>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Contests / Month">
-                    {loading ? <ChartSkeleton /> : byMonth.length ? <BarChart data={byMonth} color="var(--color-accent-purple)" /> : <EmptyState message="No contests scheduled yet." />}
-                </Card>
-                <Card
-                    title="Latest Contest Participation"
-                    subtitle={recent ? recent.name : undefined}
-                    right={ranking && ranking.total ? <span className="text-xs text-muted-foreground">{ranking.total} participants</span> : undefined}
-                >
-                    {loading || rankingLoading ? (
-                        <ChartSkeleton />
-                    ) : !recent ? (
-                        <EmptyState message="No completed contests to report on." />
-                    ) : ranking && ranking.rows.length ? (
-                        <DataTable columns={cols} rows={ranking.rows} pageSize={8} />
+                <Card title="Free vs Premium" subtitle="Subscription mix of the student base">
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : s && s.free + s.premium > 0 ? (
+                        <DonutChart data={mix} />
                     ) : (
-                        <UnavailablePill reason="Contest ranking is scoped to the admin's own class by the backend, so cross-class participation isn't derivable here." />
+                        <EmptyState message="No students match the current filters." />
+                    )}
+                </Card>
+                <Card title="Notification Engagement" subtitle="Read rate & push reachability">
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : s ? (
+                        <div className="flex flex-col gap-5 pt-2">
+                            <LabeledBar label="Read rate" value={s.notif_read_pct} />
+                            <LabeledBar label="Push reachability" value={s.push_reach_pct} />
+                            {s.premium === 0 && (
+                                <UnavailablePill reason="No PREMIUM subscribers yet — revenue metrics will populate once paid plans exist." />
+                            )}
+                        </div>
+                    ) : (
+                        <EmptyState message="No notification data in range." />
                     )}
                 </Card>
             </div>
@@ -300,108 +530,14 @@ export function ContestSection() {
     );
 }
 
-// ===========================================================================
-// DEMOGRAPHICS — class / exam / batch / geography split of the student base
-// ===========================================================================
-export function DemographicsSection({ filters }: { filters: Filters }) {
-    const { users, loading } = useUsers();
-    const { classes } = useClasses();
-    const classNames = useMemo(() => new Map(classes.map(c => [c.id, c.name])), [classes]);
-
-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
-
-    const byExam = useMemo(() => multiCategoryCounts(students, u => u.target_exams).map(b => ({ label: formatExamType(b.label), count: b.count })), [students]);
-    const byClass = useMemo(() => categoryCounts(students, u => (u.class_id ? classNames.get(u.class_id) ?? u.class_id : null), "No class"), [students, classNames]);
-    const byBatch = useMemo(() => categoryCounts(students, u => u.batch, "No batch"), [students]);
-    const byState = useMemo(() => categoryCounts(students, u => u.state, "Unknown").slice(0, 10), [students]);
-
+function LabeledBar({ label, value }: { label: string; value: number | null }) {
     return (
-        <Section title="Demographics" description="Who makes up the student base" icon={<PieChart className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Target Exam">
-                    {loading ? <ChartSkeleton /> : byExam.length ? <DonutChart data={byExam} /> : <EmptyState message="No exam data on student profiles." />}
-                </Card>
-                <Card title="Class">
-                    {loading ? <ChartSkeleton /> : byClass.length ? <DonutChart data={byClass} /> : <EmptyState message="No class data on student profiles." />}
-                </Card>
-                <Card title="Batch">
-                    {loading ? <ChartSkeleton /> : byBatch.length ? <HBarList data={byBatch.slice(0, 10)} colorByIndex /> : <EmptyState message="No batch data on student profiles." />}
-                </Card>
-                <Card title="Top States" subtitle="By registered students">
-                    {loading ? <ChartSkeleton /> : byState.some(b => b.label !== "Unknown") ? <HBarList data={byState} /> : <UnavailablePill reason="Student profiles carry no location data to derive geography from." />}
-                </Card>
+        <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-semibold text-foreground tabular-nums">{pct(value)}</span>
             </div>
-        </Section>
-    );
-}
-
-// ===========================================================================
-// REGISTRATION ACTIVITY — when students sign up (weekday × hour heatmap, IST)
-// ===========================================================================
-export function ActivitySection({ filters }: { filters: Filters }) {
-    const { users, loading } = useUsers();
-    const students = useMemo(() => users.filter(u => u.role === "STUDENT" && matchUser(u, filters)), [users, filters]);
-
-    const hours = useMemo(() => hourDistribution(students).map((count, h) => ({ label: `${h}`, count })), [students]);
-    const weekdays = useMemo(() => weekdayDistribution(students), [students]);
-
-    // weekday(row) × hour(col) grid
-    const heat = useMemo(() => {
-        const g = Array.from({ length: 7 }, () => new Array(24).fill(0));
-        for (const u of students) {
-            const p = istParts(u.created_at);
-            if (p) g[p.weekdayIndex][p.hour] += 1;
-        }
-        return g;
-    }, [students]);
-    const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-    return (
-        <Section title="Registration Activity" description="When students join, in IST" icon={<Clock className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="By Hour of Day">
-                    {loading ? <ChartSkeleton /> : students.length ? <BarChart data={hours} labelEvery={3} /> : <EmptyState message="No registration data." />}
-                </Card>
-                <Card title="By Weekday">
-                    {loading ? <ChartSkeleton /> : students.length ? <BarChart data={weekdays} color="var(--color-accent-blue)" /> : <EmptyState message="No registration data." />}
-                </Card>
-                <Card title="Weekday × Hour Heatmap" className="lg:col-span-2" subtitle="Registration density (IST)">
-                    {loading ? <ChartSkeleton /> : students.length ? <Heatmap grid={heat} rows={WD} cols={Array.from({ length: 24 }, (_, h) => `${h}`)} /> : <EmptyState message="No registration data." />}
-                </Card>
-            </div>
-        </Section>
-    );
-}
-
-// ===========================================================================
-// RETENTION — genuinely NOT derivable from the available endpoints
-// ===========================================================================
-export function RetentionSection() {
-    const items = [
-        { label: "Monthly Active Users (MAU)", reason: "Arena ranking exposes only daily & weekly windows — there is no monthly activity feed to derive a 30-day active count from." },
-        { label: "D1 / D7 / D30 Retention", reason: "No per-user event timeline is exposed; cohort return-rates can't be reconstructed from ranking snapshots." },
-        { label: "Avg. Session Duration", reason: "No session/heartbeat endpoint exists in the current API surface." },
-        { label: "Churn Rate", reason: "Requires longitudinal activity per user, which no available endpoint provides." },
-    ];
-    return (
-        <Section title="Retention & Engagement" description="Requires event data the API doesn't expose" icon={<Repeat className="h-5 w-5" />}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {items.map(it => (
-                    <Card key={it.label} title={it.label}>
-                        <UnavailablePill reason={it.reason} />
-                    </Card>
-                ))}
-            </div>
-        </Section>
-    );
-}
-
-// A tiny inline note component reused where a caveat matters.
-export function DerivationNote({ children }: { children: React.ReactNode }) {
-    return (
-        <p className="text-xs text-muted-foreground/80 flex items-start gap-1.5">
-            <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
-            {children}
-        </p>
+            <ProgressBar value={value ?? 0} max={100} />
+        </div>
     );
 }

@@ -7,20 +7,18 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, Info, Search } from "lucide-react";
+import { Info, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sparkline } from "./charts";
-import type { Delta } from "@/lib/api/analytics";
 
 // ---------------------------------------------------------------------------
-// KpiCard — headline metric with optional real (snapshot-derived) delta + spark.
+// KpiCard — headline metric with an optional trailing sparkline + sub-label.
 // ---------------------------------------------------------------------------
 export function KpiCard({
     label,
     value,
     sub,
     icon,
-    delta,
     spark,
     accent = "brand",
     unavailable,
@@ -30,7 +28,6 @@ export function KpiCard({
     value: string | number;
     sub?: string;
     icon?: React.ReactNode;
-    delta?: Delta;
     spark?: number[];
     accent?: "brand" | "blue" | "purple" | "pink";
     unavailable?: boolean;
@@ -69,30 +66,9 @@ export function KpiCard({
                 {spark && spark.length >= 2 && <Sparkline data={spark} className="h-7 w-20 shrink-0" />}
             </div>
             <div className="flex items-center gap-2 min-h-4">
-                {delta && delta.available ? (
-                    <DeltaBadge delta={delta} />
-                ) : delta && !delta.available ? (
-                    <span className="text-[11px] text-muted-foreground">Trend builds over time</span>
-                ) : null}
                 {sub && <span className="text-xs text-muted-foreground truncate">{sub}</span>}
             </div>
         </div>
-    );
-}
-
-function DeltaBadge({ delta }: { delta: Delta }) {
-    const flat = delta.value === 0;
-    const up = delta.value > 0;
-    const Icon = flat ? ArrowRight : up ? ArrowUp : ArrowDown;
-    const color = flat ? "text-muted-foreground" : up ? "text-brand-500" : "text-destructive";
-    return (
-        <span className={cn("inline-flex items-center gap-0.5 text-xs font-semibold", color)}>
-            <Icon className="h-3 w-3" />
-            {delta.value > 0 ? "+" : ""}
-            {delta.value.toLocaleString()}
-            {delta.pct !== null && <span className="opacity-70">({delta.pct > 0 ? "+" : ""}{delta.pct.toFixed(0)}%)</span>}
-            <span className="font-normal text-muted-foreground ml-0.5">vs prev</span>
-        </span>
     );
 }
 
@@ -184,6 +160,28 @@ export function EmptyState({ message, className }: { message: string; className?
         <div className={cn("flex flex-col items-center justify-center gap-2 py-10 text-center", className)}>
             <Info className="h-6 w-6 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
+        </div>
+    );
+}
+
+/**
+ * ErrorState — a real failure (DB unreachable, query error, or the analytics DB
+ * connection not being configured yet). Distinct from EmptyState ("no rows") and
+ * UnavailablePill ("not derivable from the schema").
+ */
+export function ErrorState({ code, detail, className }: { code?: string; detail?: string; className?: string }) {
+    const notConfigured = code === "not_configured";
+    return (
+        <div className={cn("flex flex-col items-center justify-center gap-2 py-8 text-center", className)}>
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive border border-destructive/20">
+                <Info className="h-3 w-3" />
+                {notConfigured ? "Analytics DB not connected" : "Couldn't load"}
+            </div>
+            <p className="text-[11px] text-muted-foreground max-w-xs leading-snug">
+                {notConfigured
+                    ? "Set ANALYTICS_DATABASE_URL on the server (a read-only faction-backend connection) to populate this dashboard."
+                    : detail || "The metric query failed. Try Refresh; if it persists, check the analytics DB connection."}
+            </p>
         </div>
     );
 }

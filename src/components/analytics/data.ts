@@ -1,66 +1,54 @@
 "use client";
 
 /**
- * Shared SWR hooks for the analytics dashboard. Every section reads from these
- * so a given endpoint is fetched at most once per refresh window (SWR dedupes by
- * key). All fetchers already swallow errors into empty results, so these hooks
- * report `isLoading` but never surface hard errors — the UI decides per-card
- * whether an empty result means "loading", "no data yet" or "not derivable".
+ * SWR hooks for the Founder Analytics dashboard. Each hook fetches one metric
+ * group from this app's `/api/analytics/*` routes (which run read-only SQL on
+ * the faction-backend DB). Keys embed the serialized filters so changing a
+ * segmentation control refetches exactly the affected groups.
+ *
+ * Errors are surfaced (not swallowed) so each section can render a precise
+ * error / not-configured state; SWR keeps the previous data during refetch.
  */
 
 import useSWR from "swr";
 import {
-    fetchAllUsers,
-    fetchArenaRanking,
-    fetchClasses,
-    fetchContests,
-    fetchRatingRanking,
-    fetchStreakRanking,
-    fetchTopPerformers,
-    type TimeFilter,
+    filtersToQuery,
+    getMetric,
+    type ActivationData,
+    type ClassesData,
+    type EngagementData,
+    type FeaturesData,
+    type Filters,
+    type MonetizationData,
+    type OutcomesData,
+    type StreaksData,
 } from "@/lib/api/analytics";
 
 const OPTS = {
     revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 300_000, // 5 min — analytics data isn't real-time
     keepPreviousData: true,
+    dedupingInterval: 60_000,
+    shouldRetryOnError: false, // don't hammer a misconfigured DB; the card shows the error
 };
 
-export function useUsers() {
-    const { data, isLoading, mutate } = useSWR("analytics:users", fetchAllUsers, OPTS);
-    return { users: data ?? [], loading: isLoading, mutate };
+function useMetric<T>(group: string, path: string, filters: Filters) {
+    const key = `analytics:${group}${filtersToQuery(filters)}`;
+    const { data, error, isLoading, isValidating } = useSWR<T>(key, () => getMetric<T>(path, filters), OPTS);
+    return { data, error, loading: isLoading, validating: isValidating };
 }
 
-export function useArena(time_filter?: TimeFilter, exam_type?: string) {
-    const key = `analytics:arena:${time_filter ?? "all"}:${exam_type ?? ""}`;
-    const { data, isLoading } = useSWR(key, () => fetchArenaRanking(time_filter, exam_type || undefined), OPTS);
-    return { rows: data ?? [], loading: isLoading };
-}
-
-export function useRating(exam_type?: string) {
-    const key = `analytics:rating:${exam_type ?? ""}`;
-    const { data, isLoading } = useSWR(key, () => fetchRatingRanking(exam_type || undefined), OPTS);
-    return { rows: data ?? [], loading: isLoading };
-}
-
-export function useStreak(exam_type?: string) {
-    const key = `analytics:streak:${exam_type ?? ""}`;
-    const { data, isLoading } = useSWR(key, () => fetchStreakRanking(exam_type || undefined), OPTS);
-    return { rows: data ?? [], loading: isLoading };
-}
-
-export function useTopPerformers() {
-    const { data, isLoading } = useSWR("analytics:top-performers", fetchTopPerformers, OPTS);
-    return { top: data ?? null, loading: isLoading };
-}
-
-export function useContests() {
-    const { data, isLoading } = useSWR("analytics:contests", fetchContests, OPTS);
-    return { contests: data ?? [], loading: isLoading };
-}
+export const useEngagement = (f: Filters) => useMetric<EngagementData>("engagement", "engagement", f);
+export const useActivation = (f: Filters) => useMetric<ActivationData>("activation", "activation", f);
+export const useStreaks = (f: Filters) => useMetric<StreaksData>("streaks", "streaks", f);
+export const useFeatures = (f: Filters) => useMetric<FeaturesData>("features", "features", f);
+export const useOutcomes = (f: Filters) => useMetric<OutcomesData>("outcomes", "outcomes", f);
+export const useMonetization = (f: Filters) => useMetric<MonetizationData>("monetization", "monetization", f);
 
 export function useClasses() {
-    const { data, isLoading } = useSWR("analytics:classes", fetchClasses, OPTS);
-    return { classes: data ?? [], loading: isLoading };
+    const { data, error, isLoading } = useSWR<ClassesData>("analytics:classes", () => getMetric<ClassesData>("classes", { from: "", to: "", classId: "", examTypes: [], subscriptionType: "" }), {
+        revalidateOnFocus: false,
+        dedupingInterval: 600_000,
+        shouldRetryOnError: false,
+    });
+    return { classes: data?.classes ?? [], error, loading: isLoading };
 }

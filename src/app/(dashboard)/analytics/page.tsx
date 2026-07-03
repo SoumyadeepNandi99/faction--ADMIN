@@ -4,38 +4,28 @@ import { useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { EMPTY_FILTERS, FilterBar, type Filters } from "@/components/analytics/filters";
-import { Overview } from "@/components/analytics/overview";
 import {
-    ActivitySection,
-    ContestSection,
-    DemographicsSection,
-    GrowthSection,
-    ProblemSolvingSection,
-    RatingSection,
-    RetentionSection,
+    ActivationSection,
+    EngagementSection,
+    FeatureUsageSection,
+    LearningOutcomesSection,
+    MonetizationSection,
     StreakSection,
 } from "@/components/analytics/sections";
 import { LazyMount } from "@/components/analytics/primitives";
-import { useClasses, useUsers } from "@/components/analytics/data";
+import { useClasses } from "@/components/analytics/data";
 
 export default function AnalyticsPage() {
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const { mutate } = useSWRConfig();
     const [refreshing, setRefreshing] = useState(false);
 
-    const { users } = useUsers();
     const { classes } = useClasses();
-
     const classOptions = useMemo(() => classes.map(c => ({ label: c.name, value: c.id })), [classes]);
-    const batchOptions = useMemo(() => {
-        const set = new Set<string>();
-        for (const u of users) if (u.batch) set.add(u.batch);
-        return [...set].sort().map(b => ({ label: b, value: b }));
-    }, [users]);
 
     const refresh = async () => {
         setRefreshing(true);
-        // Revalidate every analytics SWR key.
+        // Revalidate every analytics SWR key (all keyed `analytics:*`).
         await mutate(key => typeof key === "string" && key.startsWith("analytics:"), undefined, { revalidate: true });
         setRefreshing(false);
     };
@@ -50,7 +40,7 @@ export default function AnalyticsPage() {
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight text-foreground">Founder Analytics</h1>
                         <p className="text-muted-foreground text-sm">
-                            Product & growth health, derived live from platform data. All times in IST.
+                            Habit-forming engagement metrics, computed live from the platform database. All days in IST.
                         </p>
                     </div>
                 </div>
@@ -64,33 +54,24 @@ export default function AnalyticsPage() {
                 </button>
             </div>
 
-            <FilterBar filters={filters} onChange={setFilters} classOptions={classOptions} batchOptions={batchOptions} />
+            <FilterBar filters={filters} onChange={setFilters} classOptions={classOptions} />
 
-            <Overview filters={filters} />
+            <EngagementSection filters={filters} />
 
             <LazyMount>
-                <GrowthSection filters={filters} />
-            </LazyMount>
-            <LazyMount>
-                <ProblemSolvingSection filters={filters} />
-            </LazyMount>
-            <LazyMount>
-                <RatingSection filters={filters} />
+                <ActivationSection filters={filters} />
             </LazyMount>
             <LazyMount>
                 <StreakSection filters={filters} />
             </LazyMount>
             <LazyMount>
-                <ContestSection />
+                <FeatureUsageSection filters={filters} />
             </LazyMount>
             <LazyMount>
-                <DemographicsSection filters={filters} />
+                <LearningOutcomesSection filters={filters} />
             </LazyMount>
             <LazyMount>
-                <ActivitySection filters={filters} />
-            </LazyMount>
-            <LazyMount>
-                <RetentionSection />
+                <MonetizationSection filters={filters} />
             </LazyMount>
         </div>
     );

@@ -287,39 +287,3 @@ export function ProgressBar({ value, max = 100, color = BRAND }: { value: number
     );
 }
 
-// ---------------------------------------------------------------------------
-// Heatmap — weekday × hour grid (registration activity).
-// ---------------------------------------------------------------------------
-export function Heatmap({ grid, rows, cols }: { grid: number[][]; rows: string[]; cols: string[] }) {
-    const flat = grid.flat();
-    const max = Math.max(...flat, 1);
-    return (
-        <div className="overflow-x-auto">
-            <div className="inline-grid gap-0.5" style={{ gridTemplateColumns: `auto repeat(${cols.length}, 1fr)` }}>
-                <div />
-                {cols.map((c, i) => (
-                    <div key={i} className="px-0.5 text-center text-[9px] text-muted-foreground">
-                        {i % 2 === 0 ? c : ""}
-                    </div>
-                ))}
-                {rows.map((rlabel, r) => (
-                    <React.Fragment key={r}>
-                        <div className="pr-2 text-right text-[10px] leading-4 text-muted-foreground">{rlabel}</div>
-                        {cols.map((_, c) => {
-                            const v = grid[r]?.[c] ?? 0;
-                            const intensity = v / max;
-                            return (
-                                <div
-                                    key={c}
-                                    className="aspect-square min-w-3 rounded-[3px]"
-                                    style={{ background: v === 0 ? "var(--color-muted)" : `color-mix(in srgb, var(--color-brand-500) ${Math.round(15 + intensity * 85)}%, transparent)` }}
-                                    title={`${rlabel} ${cols[c]}: ${v}`}
-                                />
-                            );
-                        })}
-                    </React.Fragment>
-                ))}
-            </div>
-        </div>
-    );
-}
