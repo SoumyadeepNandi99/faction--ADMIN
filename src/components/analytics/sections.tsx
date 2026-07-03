@@ -16,6 +16,7 @@ import {
     CheckCircle2,
     CreditCard,
     Flame,
+    GraduationCap,
     Layers,
     MessageSquare,
     Repeat,
@@ -445,27 +446,123 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
     );
     const hasDiff = diffMix.some(d => d.count > 0);
 
+    const pyqMix = useMemo(
+        () =>
+            s
+                ? [
+                      { label: "Previous-year (PYQ)", count: s.pyq_solved },
+                      { label: "Other questions", count: s.non_pyq_solved },
+                  ]
+                : [],
+        [s],
+    );
+    const pyqShare = s && s.total_solved > 0 ? Math.round((100 * s.pyq_solved) / s.total_solved) : null;
+    const solveRate = s && s.total_attempts > 0 ? Math.round((100 * s.total_solved) / s.total_attempts) : null;
+
     return (
-        <Section title="Learning Outcomes" description="Accuracy, difficulty mix and weak topics" icon={<BookOpenCheck className="h-5 w-5" />}>
+        <Section
+            title="Learning Outcomes"
+            description="Questions solved, PYQ coverage, accuracy and difficulty mix"
+            icon={<BookOpenCheck className="h-5 w-5" />}
+        >
+            {/* Flagship, screenshot-friendly headline. */}
+            <HeadlineBanner
+                loading={loading}
+                error={error}
+                value={kpi(s?.total_solved)}
+                caption={
+                    s
+                        ? `questions solved by students across ${n(s.total_attempts)} attempts${
+                              pyqShare != null ? ` · ${pyqShare}% on real past-exam (PYQ) questions` : ""
+                          }`
+                        : "questions solved by students"
+                }
+                label="Total Questions Solved"
+                icon={<Swords className="h-6 w-6" />}
+            />
+
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy_rate" />
-                <KpiCard label="Total Solved (E/M/H)" value={s ? `${n(s.easy_solved)}/${n(s.medium_solved)}/${n(s.hard_solved)}` : "—"} accent="blue" icon={<Swords className="h-5 w-5" />} sub="by difficulty" />
-                <KpiCard label="Users w/ Weak Topics" value={kpi(s?.users_with_weak_topics)} accent="purple" icon={<AlertTriangle className="h-5 w-5" />} sub="flagged for review" unavailable={s != null && s.users_with_weak_topics === 0} unavailableReason="No weak-topic rows recorded yet (feature just launched)." />
-                <KpiCard label="Avg Weakness Score" value={kpi(s?.avg_weakness_score)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="higher = weaker" unavailable={s != null && s.avg_weakness_score == null} unavailableReason="No weak-topic rows to average yet." />
+                <KpiCard label="PYQs Solved" value={kpi(s?.pyq_solved)} icon={<GraduationCap className="h-5 w-5" />} sub={pyqShare != null ? `${pyqShare}% of all solves · real exam questions` : "previous-year exam questions"} />
+                <KpiCard label="Non-PYQs Solved" value={kpi(s?.non_pyq_solved)} accent="blue" icon={<BookOpenCheck className="h-5 w-5" />} sub="practice & concept questions" />
+                <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} accent="purple" icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy" />
+                <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub={solveRate != null ? `correct + wrong · ${solveRate}% solved` : "correct + wrong"} />
             </KpiStrip>
 
-            <Card title="Difficulty Mix Solved" subtitle="Aggregate solved counts by difficulty">
-                {loading ? (
-                    <ChartSkeleton height={160} />
-                ) : error ? (
-                    <ErrorState {...errParts(error)} />
-                ) : hasDiff ? (
-                    <DonutChart data={diffMix} />
-                ) : (
-                    <EmptyState message="No solved-question difficulty data for the current filters." />
-                )}
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card title="PYQ vs Other" subtitle="Distinct questions solved, by source">
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : s && s.total_solved > 0 ? (
+                        <DonutChart data={pyqMix} />
+                    ) : (
+                        <EmptyState message="No solved questions for the current filters." />
+                    )}
+                </Card>
+                <Card title="Difficulty Mix Solved" subtitle="Aggregate solved counts by difficulty">
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : hasDiff ? (
+                        <DonutChart data={diffMix} />
+                    ) : (
+                        <EmptyState message="No solved-question difficulty data for the current filters." />
+                    )}
+                </Card>
+            </div>
+
+            {/* Weak-topics remain, but demoted below the flagship numbers. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <KpiCard label="Users w/ Weak Topics" value={kpi(s?.users_with_weak_topics)} accent="purple" icon={<AlertTriangle className="h-5 w-5" />} sub="flagged for targeted review" unavailable={s != null && s.users_with_weak_topics === 0} unavailableReason="No weak-topic rows recorded yet (feature just launched)." />
+                <KpiCard label="Avg Weakness Score" value={kpi(s?.avg_weakness_score)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="higher = weaker" unavailable={s != null && s.avg_weakness_score == null} unavailableReason="No weak-topic rows to average yet." />
+            </div>
         </Section>
+    );
+}
+
+/** A large, screenshot-friendly hero number for the flagship metric. */
+function HeadlineBanner({
+    loading,
+    error,
+    value,
+    caption,
+    label,
+    icon,
+}: {
+    loading: boolean;
+    error: unknown;
+    value: string;
+    caption: string;
+    label: string;
+    icon: React.ReactNode;
+}) {
+    if (error) {
+        return (
+            <div className="glass-card p-6">
+                <ErrorState {...errParts(error)} />
+            </div>
+        );
+    }
+    return (
+        <div className="glass-card relative overflow-hidden p-6 sm:p-8">
+            <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-brand-500/10 blur-3xl" />
+            <div className="flex items-center gap-4">
+                <div className="hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-brand-700 text-white shadow-lg shadow-brand-500/20">
+                    {icon}
+                </div>
+                <div className="min-w-0">
+                    <p className="text-sm font-medium text-muted-foreground">{label}</p>
+                    {loading ? (
+                        <Skeleton className="mt-1 h-11 w-40 rounded" />
+                    ) : (
+                        <p className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground tabular-nums leading-tight">{value}</p>
+                    )}
+                    {!loading && <p className="mt-1 text-sm text-muted-foreground">{caption}</p>}
+                </div>
+            </div>
+        </div>
     );
 }
 

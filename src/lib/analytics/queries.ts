@@ -576,6 +576,10 @@ export async function getFeatureReach(f: AnalyticsFilters): Promise<FeatureReach
 export interface LearningOutcomes {
     avg_accuracy_pct: number | null;
     easy_solved: number; medium_solved: number; hard_solved: number;
+    total_solved: number; // correct attempts by students (every solve counts)
+    pyq_solved: number; // of those, on questions tagged in previous_year_problems
+    non_pyq_solved: number; // the rest
+    total_attempts: number; // all attempts (correct + wrong) — activity volume
     users_with_weak_topics: number;
     avg_weakness_score: number | null;
 }
@@ -596,6 +600,30 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
          WHERE ${STUDENTS} ${scopeAnd}`,
         scope.params,
     );
+
+    // Questions solved by students, split by PYQ membership. "Solved" = a correct
+    // attempt; this counts every correct solve (100 students solving the same
+    // question = 100), which is the real student-activity number — not global
+    // content coverage. A question is a PYQ if its id appears in
+    // previous_year_problems (a tagging table keyed by question_id). Honours
+    // class/exam/subscription segmentation and the date range (attempted_at, IST).
+    const sScope = userScope(f, 1);
+    const sScopeAnd = sScope.sql ? `AND ${sScope.sql}` : "";
+    const attDay = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const sRange = dayRangePredicate(attDay, f, sScope.params.length + 1);
+    const sRangeAnd = sRange.sql ? `AND ${sRange.sql}` : "";
+    const srow = await readonlyQueryOne<{
+        total_solved: string; pyq_solved: string; total_attempts: string;
+    }>(
+        `WITH pyq_ids AS (SELECT DISTINCT question_id FROM previous_year_problems)
+         SELECT
+           count(*) FILTER (WHERE a.is_correct) AS total_solved,
+           count(*) FILTER (WHERE a.is_correct AND a.question_id IN (SELECT question_id FROM pyq_ids)) AS pyq_solved,
+           count(*) AS total_attempts
+         FROM question_attempts a JOIN users u ON u.id = a.user_id
+         WHERE ${STUDENTS} ${sScopeAnd} ${sRangeAnd}`,
+        [...sScope.params, ...sRange.params],
+    );
     const wScope = userScope(f, 1);
     const wScopeAnd = wScope.sql ? `AND ${wScope.sql}` : "";
     const wrow = await readonlyQueryOne<{ users_weak: string; avg_weak: string | null }>(
@@ -605,11 +633,17 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
          WHERE ${STUDENTS} ${wScopeAnd}`,
         wScope.params,
     );
+    const totalSolved = num(srow?.total_solved);
+    const pyqSolved = num(srow?.pyq_solved);
     return {
         avg_accuracy_pct: row?.avg_acc != null ? Number(row.avg_acc) : null,
         easy_solved: num(row?.easy),
         medium_solved: num(row?.medium),
         hard_solved: num(row?.hard),
+        total_solved: totalSolved,
+        pyq_solved: pyqSolved,
+        non_pyq_solved: Math.max(0, totalSolved - pyqSolved),
+        total_attempts: num(srow?.total_attempts),
         users_with_weak_topics: num(wrow?.users_weak),
         avg_weakness_score: wrow?.avg_weak != null ? Number(wrow.avg_weak) : null,
     };
