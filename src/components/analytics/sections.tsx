@@ -459,6 +459,13 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
     const pyqShare = s && s.total_solved > 0 ? Math.round((100 * s.pyq_solved) / s.total_solved) : null;
     const solveRate = s && s.total_attempts > 0 ? Math.round((100 * s.total_solved) / s.total_attempts) : null;
 
+    // Distributions of solved questions. Subject sums to Total Solved (1:1 path),
+    // so we can show a % share; exam tags overlap, so it's shown as raw counts.
+    const bySubject = data?.bySubject ?? [];
+    const byExam = data?.byExam ?? [];
+    const subjectTotal = bySubject.reduce((a, b) => a + b.count, 0);
+    const subjectPct = (c: number) => (subjectTotal > 0 ? `${Math.round((100 * c) / subjectTotal)}%` : "");
+
     return (
         <Section
             title="Learning Outcomes"
@@ -489,7 +496,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
             </KpiStrip>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="PYQ vs Other" subtitle="Distinct questions solved, by source">
+                <Card title="PYQ vs Other" subtitle="Solves by source">
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -509,6 +516,39 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                         <DonutChart data={diffMix} />
                     ) : (
                         <EmptyState message="No solved-question difficulty data for the current filters." />
+                    )}
+                </Card>
+            </div>
+
+            {/* Distribution of solved questions by subject and by exam. */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card
+                    title="Solved by Subject"
+                    subtitle="Share of total questions solved"
+                    right={subjectTotal > 0 ? <span className="text-xs text-muted-foreground">{subjectTotal.toLocaleString()} solves</span> : undefined}
+                >
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : bySubject.length ? (
+                        <HBarList data={bySubject} colorByIndex valueFormatter={c => `${c.toLocaleString()} · ${subjectPct(c)}`} />
+                    ) : (
+                        <EmptyState message="No solved questions for the current filters." />
+                    )}
+                </Card>
+                <Card
+                    title="Solved by Exam"
+                    subtitle="Questions tagged for each exam (tags overlap)"
+                >
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : byExam.length ? (
+                        <HBarList data={byExam} colorByIndex valueFormatter={c => c.toLocaleString()} />
+                    ) : (
+                        <EmptyState message="No exam-tagged solves for the current filters." />
                     )}
                 </Card>
             </div>

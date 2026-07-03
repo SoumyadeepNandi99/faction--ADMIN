@@ -649,6 +649,61 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
     };
 }
 
+/**
+ * Solved questions (correct attempts by students) grouped by subject. Subject
+ * identity is `subject.subject_type` (PHYSICS/CHEMISTRY/MATHS/BIOLOGY), reached
+ * via question.topic_id → topic.chapter_id → chapter.subject_id → subject. The
+ * topic→chapter→subject path is 1:1 in the data (verified), so these bars sum
+ * to Total Solved exactly. Segmentation- and date-range-aware (attempted_at, IST).
+ */
+export async function getSolvedBySubject(f: AnalyticsFilters): Promise<Bucket[]> {
+    const scope = userScope(f, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const attDay = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(attDay, f, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+    const rows = await readonlyQuery<{ label: string; count: string }>(
+        `SELECT sub.subject_type::text AS label, count(*) AS count
+         FROM question_attempts a
+         JOIN users u ON u.id = a.user_id
+         JOIN question q ON q.id = a.question_id
+         JOIN topic t ON t.id = q.topic_id
+         JOIN chapter c ON c.id = t.chapter_id
+         JOIN subject sub ON sub.id = c.subject_id
+         WHERE ${STUDENTS} AND a.is_correct ${scopeAnd} ${rangeAnd}
+         GROUP BY sub.subject_type
+         ORDER BY count DESC`,
+        [...scope.params, ...range.params],
+    );
+    return rows.map(r => ({ label: titleCase(r.label), count: num(r.count) }));
+}
+
+/**
+ * Solved questions grouped by exam. question.exam_type is a JSON array, so a
+ * question can carry several exam tags; a solve is counted toward EACH tag, so
+ * these bars can sum to more than Total Solved (a legitimately overlapping view).
+ * Untagged solves are bucketed as "Untagged".
+ */
+export async function getSolvedByExam(f: AnalyticsFilters): Promise<Bucket[]> {
+    const scope = userScope(f, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const attDay = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(attDay, f, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+    const rows = await readonlyQuery<{ label: string | null; count: string }>(
+        `SELECT ex.exam AS label, count(*) AS count
+         FROM question_attempts a
+         JOIN users u ON u.id = a.user_id
+         JOIN question q ON q.id = a.question_id
+         LEFT JOIN LATERAL json_array_elements_text(q.exam_type) AS ex(exam) ON true
+         WHERE ${STUDENTS} AND a.is_correct ${scopeAnd} ${rangeAnd}
+         GROUP BY ex.exam
+         ORDER BY count DESC`,
+        [...scope.params, ...range.params],
+    );
+    return rows.map(r => ({ label: r.label ? formatExam(r.label) : "Untagged", count: num(r.count) }));
+}
+
 // ===========================================================================
 // 6. MONETIZATION & NOTIFICATIONS
 // ===========================================================================
@@ -746,4 +801,19 @@ function num(v: string | number | null | undefined): number {
 }
 function round1(n: number): number {
     return Math.round(n * 10) / 10;
+}
+/** "PHYSICS" → "Physics". */
+function titleCase(s: string): string {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+}
+/** Map a backend exam enum to a display label (mirrors the client's exam-types). */
+const EXAM_LABELS: Record<string, string> = {
+    JEE_ADVANCED: "JEE Advanced",
+    JEE_MAINS: "JEE Mains",
+    NEET: "NEET",
+    OLYMPIAD: "Olympiad",
+    CBSE: "CBSE",
+};
+function formatExam(v: string): string {
+    return EXAM_LABELS[v] ?? v.replace(/_/g, " ");
 }
