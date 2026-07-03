@@ -3,13 +3,14 @@
 import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { apiClient } from "@/lib/axios";
-import { Megaphone, Send, Users, History, Loader2, Check, Bell, Trash2, Search } from "lucide-react";
+import { Megaphone, Send, Users, History, Loader2, Check, Bell, Trash2, Search, Target, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { toast } from "sonner";
 import { getApiError } from "@/lib/utils";
 import { confirmAction } from "@/components/ui/confirm-modal";
 import { formatDateTime } from "@/lib/datetime";
+import { fetchSegments, resolveSegment, AnalyticsFetchError } from "@/lib/api/analytics";
 
 interface NotificationItem {
     id: string;
@@ -44,8 +45,9 @@ export default function BroadcastsPage() {
     const [isSending, setIsSending] = useState(false);
     const [sentCount, setSentCount] = useState(0);
 
-    // Target: broadcast to everyone, or send to specific users (individual API).
-    const [targetMode, setTargetMode] = useState<"all" | "specific">("all");
+    // Target: broadcast to everyone, an audience segment, or specific users.
+    const [targetMode, setTargetMode] = useState<"all" | "segment" | "specific">("all");
+    const [selectedSegment, setSelectedSegment] = useState<string>("");
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
     // Remember display info (name/phone) of selected users so their chips stay
     // visible even after they scroll out of the current (server-side) search.
@@ -75,6 +77,26 @@ export default function BroadcastsPage() {
     );
     const pickableUsers: { id: string; name?: string; phone_number?: string }[] = usersData || [];
 
+    // Segment catalogue (loaded once) + the resolved audience for the current pick.
+    const { data: segments } = useSWR("analytics:segments", fetchSegments, { revalidateOnFocus: false });
+    const {
+        data: resolvedSegment,
+        error: segmentError,
+        isLoading: segmentLoading,
+    } = useSWR(
+        targetMode === "segment" && selectedSegment ? `analytics:segment:${selectedSegment}` : null,
+        () => resolveSegment(selectedSegment),
+        { revalidateOnFocus: false, shouldRetryOnError: false },
+    );
+    const segmentErrText =
+        segmentError instanceof AnalyticsFetchError
+            ? segmentError.code === "not_configured"
+                ? "Segment targeting needs the analytics DB connection (ANALYTICS_DATABASE_URL). It isn't configured on the server yet."
+                : segmentError.detail || "Couldn't resolve this segment."
+            : segmentError
+              ? "Couldn't resolve this segment."
+              : null;
+
     const [historySearch, setHistorySearch] = useState("");
     const [historyTypeFilter, setHistoryTypeFilter] = useState("");
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -103,22 +125,47 @@ export default function BroadcastsPage() {
         if (!title.trim() || !content.trim()) return;
 
         const specific = targetMode === "specific";
-        if (specific && selectedUserIds.length === 0) {
-            toast.error("Select at least one user.");
-            return;
+        const segmentMode = targetMode === "segment";
+
+        // Resolve the recipient list up front for the id-based paths.
+        let recipientIds: string[] = [];
+        if (specific) {
+            recipientIds = selectedUserIds;
+            if (recipientIds.length === 0) {
+                toast.error("Select at least one user.");
+                return;
+            }
+        } else if (segmentMode) {
+            if (!selectedSegment) {
+                toast.error("Pick a segment first.");
+                return;
+            }
+            recipientIds = resolvedSegment?.userIds ?? [];
+            if (segmentLoading) {
+                toast.error("Still counting the segment — try again in a moment.");
+                return;
+            }
+            if (recipientIds.length === 0) {
+                toast.error("This segment currently has no students — nothing to send.");
+                return;
+            }
         }
+
+        const segLabel = segments?.find(s => s.key === selectedSegment)?.label ?? "segment";
         const confirmMsg = specific
-            ? `Send push notification to ${selectedUserIds.length} selected user${selectedUserIds.length > 1 ? "s" : ""}?`
-            : `Send push notification to ALL users?`;
-        if (!(await confirmAction({ title: "Confirm Action", description: confirmMsg }))) return;
+            ? `Send push notification to ${recipientIds.length} selected user${recipientIds.length > 1 ? "s" : ""}?`
+            : segmentMode
+              ? `Send push notification to ${recipientIds.length} student${recipientIds.length > 1 ? "s" : ""} in "${segLabel}"?`
+              : `Send push notification to ALL users?`;
+        if (!(await confirmAction({ title: "Confirm Action", description: confirmMsg, destructive: recipientIds.length > 100 || !specific && !segmentMode }))) return;
 
         setIsSending(true);
         try {
             let res: any;
-            if (specific) {
-                // Individual notification API — POST /notifications/admin/send.
+            if (specific || segmentMode) {
+                // Both id-based paths use the existing individual-send endpoint.
                 res = await apiClient.post("/api/v1/notifications/admin/send", {
-                    user_ids: selectedUserIds,
+                    user_ids: recipientIds,
                     title,
                     message: content,
                     type,
@@ -146,7 +193,13 @@ export default function BroadcastsPage() {
             setSelectedUserIds([]);
             setSelectedInfo({});
             setUserSearch("");
-            toast.success(specific ? "Notification sent to selected users." : "Broadcast sent successfully.");
+            toast.success(
+                segmentMode
+                    ? `Sent to ${recipientIds.length} student${recipientIds.length > 1 ? "s" : ""} in "${segLabel}".`
+                    : specific
+                      ? "Notification sent to selected users."
+                      : "Broadcast sent successfully.",
+            );
         } catch (err: any) {
             toast.error(getApiError(err, "Failed to send notification."));
         } finally {
@@ -230,20 +283,64 @@ export default function BroadcastsPage() {
                                     ]}
                                 />
                             </div>
-                            {/* Recipients: all users (broadcast) vs specific users (individual API) */}
+                            {/* Recipients: all users, an audience segment, or specific users. */}
                             <div>
                                 <label className="block text-sm font-medium text-foreground mb-1.5">Send To *</label>
-                                <div className="flex gap-2">
+                                <div className="grid grid-cols-3 gap-2">
                                     <button type="button" onClick={() => setTargetMode("all")}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${targetMode === "all" ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/30" : "bg-foreground/5 text-muted-foreground border-(--input) hover:text-foreground"}`}>
-                                        <Users className="h-4 w-4" /> All users
+                                        className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${targetMode === "all" ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/30" : "bg-foreground/5 text-muted-foreground border-(--input) hover:text-foreground"}`}>
+                                        <Users className="h-4 w-4" /> All
+                                    </button>
+                                    <button type="button" onClick={() => setTargetMode("segment")}
+                                        className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${targetMode === "segment" ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/30" : "bg-foreground/5 text-muted-foreground border-(--input) hover:text-foreground"}`}>
+                                        <Target className="h-4 w-4" /> Segment
                                     </button>
                                     <button type="button" onClick={() => setTargetMode("specific")}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${targetMode === "specific" ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/30" : "bg-foreground/5 text-muted-foreground border-(--input) hover:text-foreground"}`}>
-                                        <Bell className="h-4 w-4" /> Specific users
+                                        className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors cursor-pointer ${targetMode === "specific" ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/30" : "bg-foreground/5 text-muted-foreground border-(--input) hover:text-foreground"}`}>
+                                        <Bell className="h-4 w-4" /> Specific
                                     </button>
                                 </div>
                             </div>
+
+                            {targetMode === "segment" && (
+                                <div className="rounded-xl border border-(--input) bg-foreground/5 p-3 space-y-3">
+                                    <CustomSelect
+                                        value={selectedSegment}
+                                        onChange={setSelectedSegment}
+                                        placeholder="Choose an audience segment…"
+                                        options={(segments ?? []).map(s => ({ label: s.label, value: s.key }))}
+                                    />
+                                    {selectedSegment && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {segments?.find(s => s.key === selectedSegment)?.description}
+                                        </p>
+                                    )}
+                                    {/* Live audience count for the chosen segment. */}
+                                    {selectedSegment && (
+                                        segmentErrText ? (
+                                            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive">
+                                                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                                <span>{segmentErrText}</span>
+                                            </div>
+                                        ) : segmentLoading ? (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Counting students…
+                                            </div>
+                                        ) : resolvedSegment ? (
+                                            <div className="flex items-center gap-2 rounded-lg bg-brand-500/10 border border-brand-500/20 px-3 py-2">
+                                                <Target className="h-4 w-4 text-brand-500 shrink-0" />
+                                                <span className="text-sm text-foreground">
+                                                    <span className="font-bold">{resolvedSegment.count.toLocaleString()}</span>{" "}
+                                                    student{resolvedSegment.count === 1 ? "" : "s"} match this segment right now.
+                                                </span>
+                                            </div>
+                                        ) : null
+                                    )}
+                                    <p className="text-[11px] text-muted-foreground/80">
+                                        Segments are computed live from platform activity (IST). Sends via the same push channel as specific users.
+                                    </p>
+                                </div>
+                            )}
 
                             {targetMode === "specific" && (
                                 <div className="rounded-xl border border-(--input) bg-foreground/5 p-3 space-y-2">
@@ -289,7 +386,11 @@ export default function BroadcastsPage() {
                                     </div>
                                 </div>
                             )}
-                            <button type="submit" disabled={isSending || !title.trim() || !content.trim() || content.length > MESSAGE_MAX || (targetMode === "specific" && selectedUserIds.length === 0)}
+                            <button type="submit" disabled={
+                                    isSending || !title.trim() || !content.trim() || content.length > MESSAGE_MAX ||
+                                    (targetMode === "specific" && selectedUserIds.length === 0) ||
+                                    (targetMode === "segment" && (!selectedSegment || segmentLoading || !!segmentErrText || (resolvedSegment?.count ?? 0) === 0))
+                                }
                                 className="w-full flex items-center justify-center gap-2 bg-linear-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white py-3 rounded-xl font-medium transition-all shadow-md shadow-brand-500/20 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer">
                                 {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Send className="h-4 w-4" />Dispatch Notification</>}
                             </button>
