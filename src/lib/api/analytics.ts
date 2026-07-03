@@ -155,6 +155,8 @@ export interface OutcomesData {
         total_attempts: number;
         users_with_weak_topics: number; avg_weakness_score: number | null;
     };
+    bySubject: { label: string; count: number }[];
+    byExam: { label: string; count: number }[];
 }
 
 export interface MonetizationData {
