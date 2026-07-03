@@ -649,6 +649,45 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
     };
 }
 
+export interface TrendPoint { day: string; solved: number; cumulative: number; }
+
+/**
+ * Questions solved per IST day (correct attempts by students), gap-filled so
+ * missing days render as zero, with a running cumulative total. The cumulative
+ * line is the "growth" view; `solved` is the per-day view. When a date range is
+ * set the series is confined to it; otherwise it spans first→last activity day.
+ * Segmentation-aware. The final cumulative value equals Total Solved for the
+ * same filters (when no date `from` clips earlier history).
+ */
+export async function getSolvedTrend(f: AnalyticsFilters): Promise<TrendPoint[]> {
+    const scope = userScope(f, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const day = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(day, f, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+    const rows = await readonlyQuery<{ day: string; solved: string; cumulative: string }>(
+        `WITH daily AS (
+           SELECT ${day} AS d, count(*) AS solved
+           FROM question_attempts a JOIN users u ON u.id = a.user_id
+           WHERE ${STUDENTS} AND a.is_correct ${scopeAnd} ${rangeAnd}
+           GROUP BY 1
+         ),
+         bounds AS (SELECT min(d) AS lo, max(d) AS hi FROM daily),
+         cal AS (
+           SELECT gs::date AS d
+           FROM bounds, generate_series(bounds.lo, bounds.hi, interval '1 day') AS gs
+           WHERE bounds.lo IS NOT NULL
+         )
+         SELECT cal.d AS day,
+           coalesce(daily.solved, 0) AS solved,
+           sum(coalesce(daily.solved, 0)) OVER (ORDER BY cal.d) AS cumulative
+         FROM cal LEFT JOIN daily ON daily.d = cal.d
+         ORDER BY cal.d`,
+        [...scope.params, ...range.params],
+    );
+    return rows.map(r => ({ day: r.day, solved: num(r.solved), cumulative: num(r.cumulative) }));
+}
+
 /**
  * Solved questions (correct attempts by students) grouped by subject. Subject
  * identity is `subject.subject_type` (PHYSICS/CHEMISTRY/MATHS/BIOLOGY), reached
