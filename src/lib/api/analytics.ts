@@ -151,6 +151,8 @@ export interface OutcomesData {
     summary: {
         avg_accuracy_pct: number | null;
         easy_solved: number; medium_solved: number; hard_solved: number;
+        total_solved: number; pyq_solved: number; non_pyq_solved: number;
+        total_attempts: number;
         users_with_weak_topics: number; avg_weakness_score: number | null;
     };
 }
