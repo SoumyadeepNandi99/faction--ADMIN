@@ -191,7 +191,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     ) : error ? (
                         <ErrorState {...errParts(error)} />
                     ) : solversSeries.length >= 2 ? (
-                        <AreaChart points={solversSeries} labels={solversLabels} />
+                        <AreaChart points={solversSeries} labels={solversLabels} valueLabel="active solvers" />
                     ) : (
                         <EmptyState message="Not enough activity history to plot a trend yet." />
                     )}
