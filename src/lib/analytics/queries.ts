@@ -576,10 +576,10 @@ export async function getFeatureReach(f: AnalyticsFilters): Promise<FeatureReach
 export interface LearningOutcomes {
     avg_accuracy_pct: number | null;
     easy_solved: number; medium_solved: number; hard_solved: number;
-    total_solved: number; // distinct questions solved (≥1 correct attempt)
-    pyq_solved: number; // of those, tagged in previous_year_problems
+    total_solved: number; // correct attempts by students (every solve counts)
+    pyq_solved: number; // of those, on questions tagged in previous_year_problems
     non_pyq_solved: number; // the rest
-    total_attempts: number; // total attempts made (activity volume)
+    total_attempts: number; // all attempts (correct + wrong) — activity volume
     users_with_weak_topics: number;
     avg_weakness_score: number | null;
 }
@@ -601,11 +601,12 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
         scope.params,
     );
 
-    // Distinct questions solved, split by PYQ membership. A question is a PYQ if
-    // its id appears in previous_year_problems (a tagging table keyed by
-    // question_id). "Solved" = at least one correct attempt. Counts are of
-    // DISTINCT questions (a re-solved question counts once). Honours class/exam/
-    // subscription segmentation and the date range (on attempted_at, IST).
+    // Questions solved by students, split by PYQ membership. "Solved" = a correct
+    // attempt; this counts every correct solve (100 students solving the same
+    // question = 100), which is the real student-activity number — not global
+    // content coverage. A question is a PYQ if its id appears in
+    // previous_year_problems (a tagging table keyed by question_id). Honours
+    // class/exam/subscription segmentation and the date range (attempted_at, IST).
     const sScope = userScope(f, 1);
     const sScopeAnd = sScope.sql ? `AND ${sScope.sql}` : "";
     const attDay = `(a.attempted_at + ${IST_SHIFT})::date`;
@@ -614,17 +615,13 @@ export async function getLearningOutcomes(f: AnalyticsFilters): Promise<Learning
     const srow = await readonlyQueryOne<{
         total_solved: string; pyq_solved: string; total_attempts: string;
     }>(
-        `WITH pyq_ids AS (SELECT DISTINCT question_id FROM previous_year_problems),
-         solved AS (
-           SELECT DISTINCT a.question_id
-           FROM question_attempts a JOIN users u ON u.id = a.user_id
-           WHERE ${STUDENTS} AND a.is_correct ${sScopeAnd} ${sRangeAnd}
-         )
+        `WITH pyq_ids AS (SELECT DISTINCT question_id FROM previous_year_problems)
          SELECT
-           (SELECT count(*) FROM solved) AS total_solved,
-           (SELECT count(*) FROM solved s WHERE s.question_id IN (SELECT question_id FROM pyq_ids)) AS pyq_solved,
-           (SELECT count(*) FROM question_attempts a JOIN users u ON u.id = a.user_id
-              WHERE ${STUDENTS} ${sScopeAnd} ${sRangeAnd}) AS total_attempts`,
+           count(*) FILTER (WHERE a.is_correct) AS total_solved,
+           count(*) FILTER (WHERE a.is_correct AND a.question_id IN (SELECT question_id FROM pyq_ids)) AS pyq_solved,
+           count(*) AS total_attempts
+         FROM question_attempts a JOIN users u ON u.id = a.user_id
+         WHERE ${STUDENTS} ${sScopeAnd} ${sRangeAnd}`,
         [...sScope.params, ...sRange.params],
     );
     const wScope = userScope(f, 1);

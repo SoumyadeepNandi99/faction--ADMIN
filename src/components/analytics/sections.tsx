@@ -457,6 +457,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
         [s],
     );
     const pyqShare = s && s.total_solved > 0 ? Math.round((100 * s.pyq_solved) / s.total_solved) : null;
+    const solveRate = s && s.total_attempts > 0 ? Math.round((100 * s.total_solved) / s.total_attempts) : null;
 
     return (
         <Section
@@ -471,20 +472,20 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                 value={kpi(s?.total_solved)}
                 caption={
                     s
-                        ? `questions solved across ${n(s.total_attempts)} attempts · ${pct(s.avg_accuracy_pct)} accuracy${
-                              pyqShare != null ? ` · ${pyqShare}% from real exam PYQs` : ""
+                        ? `questions solved by students across ${n(s.total_attempts)} attempts${
+                              pyqShare != null ? ` · ${pyqShare}% on real past-exam (PYQ) questions` : ""
                           }`
-                        : "questions solved"
+                        : "questions solved by students"
                 }
                 label="Total Questions Solved"
                 icon={<Swords className="h-6 w-6" />}
             />
 
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="PYQs Solved" value={kpi(s?.pyq_solved)} icon={<GraduationCap className="h-5 w-5" />} sub={pyqShare != null ? `${pyqShare}% of all solved · real exam questions` : "previous-year exam questions"} />
+                <KpiCard label="PYQs Solved" value={kpi(s?.pyq_solved)} icon={<GraduationCap className="h-5 w-5" />} sub={pyqShare != null ? `${pyqShare}% of all solves · real exam questions` : "previous-year exam questions"} />
                 <KpiCard label="Non-PYQs Solved" value={kpi(s?.non_pyq_solved)} accent="blue" icon={<BookOpenCheck className="h-5 w-5" />} sub="practice & concept questions" />
                 <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} accent="purple" icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy" />
-                <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="solving activity volume" />
+                <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub={solveRate != null ? `correct + wrong · ${solveRate}% solved` : "correct + wrong"} />
             </KpiStrip>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
