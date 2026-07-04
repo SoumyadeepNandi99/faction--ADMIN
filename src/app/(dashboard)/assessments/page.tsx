@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { apiClient } from "@/lib/axios";
-import { Award, Plus, Calendar, Clock, Loader2, Sparkles, BookOpen, RefreshCw, X, CheckCircle2, ListChecks } from "lucide-react";
+import { Award, Plus, Calendar, Clock, Loader2, Sparkles, BookOpen, RefreshCw, X, CheckCircle2, ListChecks, Eye, ImageIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { getApiError } from "@/lib/utils";
 import { createContest, getContestQuestionPool, getUsedQuestionIds, getPyqQuestionMap, getSubjectChapterMap, type Contest, type ContestStatus, type ExamType, type PoolQuestion, type PyqInfo, type ChapterRef } from "@/lib/api/contests";
 import { formatDateTime } from "@/lib/datetime";
 import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
+import { QuestionPreviewModal } from "@/components/question/question-preview-modal";
 
 interface ClassOption { id: string; name: string; }
 interface SubjectOption { id: string; subject_type: string; class_id: string; }
@@ -45,6 +46,8 @@ export default function AssessmentsPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [form, setForm] = useState(EMPTY_FORM);
+    // Question id open in the full-detail preview (image, options, answer, solution).
+    const [previewId, setPreviewId] = useState<string | null>(null);
 
     // Curriculum + subject-wise question selection
     const [classes, setClasses] = useState<ClassOption[]>([]);
@@ -444,15 +447,24 @@ export default function AssessmentsPage() {
                                             const chapterName = topicToChapter.get(q.topic_id)?.chapterName;
                                             const pyq = pyqMap.get(q.id);
                                             return (
-                                                <button type="button" key={q.id} onClick={() => toggleQuestion(q)}
-                                                    className={`w-full text-left flex items-start gap-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${isOn ? "border-brand-500/50 bg-brand-500/5" : "border-(--card-border) hover:bg-foreground/5"}`}>
-                                                    <span className={`mt-0.5 h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 ${isOn ? "border-brand-500 bg-brand-500" : "border-(--input)"}`}>
+                                                <div key={q.id}
+                                                    className={`w-full flex items-start gap-2 p-2.5 rounded-lg border transition-colors ${isOn ? "border-brand-500/50 bg-brand-500/5" : "border-(--card-border) hover:bg-foreground/5"}`}>
+                                                    <button type="button" onClick={() => toggleQuestion(q)}
+                                                        aria-label={isOn ? "Deselect question" : "Select question"}
+                                                        className={`mt-0.5 h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 cursor-pointer ${isOn ? "border-brand-500 bg-brand-500" : "border-(--input) hover:border-brand-500"}`}>
                                                         {isOn && <CheckCircle2 className="h-3 w-3 text-white" />}
-                                                    </span>
-                                                    <span className="flex-1 min-w-0">
+                                                    </button>
+                                                    <div role="button" tabIndex={0} onClick={() => toggleQuestion(q)}
+                                                        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleQuestion(q); } }}
+                                                        className="flex-1 min-w-0 cursor-pointer">
                                                         <span className="flex items-center gap-1.5 flex-wrap mb-0.5">
                                                             {chapterName && (
                                                                 <span className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-muted-foreground">{chapterName}</span>
+                                                            )}
+                                                            {q.question_image && (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue border border-accent-blue/20 font-semibold">
+                                                                    <ImageIcon className="h-2.5 w-2.5" /> Image
+                                                                </span>
                                                             )}
                                                             {pyq && (
                                                                 <span
@@ -464,8 +476,13 @@ export default function AssessmentsPage() {
                                                         </span>
                                                         <span className="block text-xs text-foreground line-clamp-2">{q.question_text}</span>
                                                         <span className="block text-[10px] text-muted-foreground mt-0.5 font-mono uppercase">{q.type} · {q.marks} mark{q.marks !== 1 ? "s" : ""} · D{q.difficulty}</span>
-                                                    </span>
-                                                </button>
+                                                    </div>
+                                                    <button type="button" onClick={() => setPreviewId(q.id)}
+                                                        title="Preview full question, image & answer"
+                                                        className="shrink-0 self-start flex items-center gap-1 px-1.5 py-1 rounded-md border border-(--card-border) text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer">
+                                                        <Eye className="h-3 w-3" /> Preview
+                                                    </button>
+                                                </div>
                                             );
                                         })
                                     )}
@@ -484,6 +501,10 @@ export default function AssessmentsPage() {
                     </div>
                 </div>
             )}
+
+            {/* Full-detail preview (image, options, answer, solution). Portals to
+                body at a higher z-index so it overlays the create-contest modal. */}
+            <QuestionPreviewModal questionId={previewId} onClose={() => setPreviewId(null)} />
         </>
     );
 }
