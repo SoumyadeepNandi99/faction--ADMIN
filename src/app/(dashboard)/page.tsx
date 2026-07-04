@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiClient } from "@/lib/axios";
 import Link from "next/link";
+import { UserGrowthChart } from "@/components/dashboard/user-growth-chart";
 
 interface Stats {
   userCount: number;
@@ -55,6 +56,9 @@ export default function Home() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">Welcome back, Admin</h1>
           <p className="text-muted-foreground">Here is the overview of the Faction Digital ecosystem today.</p>
         </div>
+
+        {/* Total-users growth chart (investor-shareable) */}
+        <UserGrowthChart />
 
         {/* Stats Grid */}
         {loading ? (
