@@ -88,6 +88,40 @@ export async function getMetric<T>(path: string, filters: Filters): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Broadcast segments — audience lists for targeted notifications. These live on
+// the same read-only analytics routes but return their payload un-enveloped, so
+// they get their own fetchers.
+// ---------------------------------------------------------------------------
+export interface SegmentDef { key: string; label: string; description: string; }
+export interface ResolvedSegment { segment: string; count: number; userIds: string[]; }
+
+async function getSegmentsJson<T>(query: string): Promise<T> {
+    const res = await fetch(`/api/analytics/segments${query}`, { headers: { ...authHeader() }, cache: "no-store" });
+    let body: unknown = null;
+    try {
+        body = await res.json();
+    } catch {
+        /* non-JSON */
+    }
+    if (!res.ok) {
+        const err = body as { error?: string; detail?: string } | null;
+        throw new AnalyticsFetchError(err?.error ?? "http_error", err?.detail ?? res.statusText, res.status);
+    }
+    return body as T;
+}
+
+/** The catalogue of available segments (labels + descriptions). */
+export async function fetchSegments(): Promise<SegmentDef[]> {
+    const { segments } = await getSegmentsJson<{ segments: SegmentDef[] }>("");
+    return segments;
+}
+
+/** Resolve a segment to its concrete audience (count + user IDs). */
+export async function resolveSegment(key: string): Promise<ResolvedSegment> {
+    return getSegmentsJson<ResolvedSegment>(`?segment=${encodeURIComponent(key)}`);
+}
+
+// ---------------------------------------------------------------------------
 // Response shapes (mirror the server return types in queries.ts)
 // ---------------------------------------------------------------------------
 export interface DayPoint { day: string; value: number; }
