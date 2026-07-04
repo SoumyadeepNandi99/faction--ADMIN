@@ -657,7 +657,7 @@ function HeadlineBanner({
                 <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-                        {info && <InfoTip text={info} />}
+                        {info && <InfoTip text={info} title={label} />}
                     </div>
                     {loading ? (
                         <Skeleton className="mt-1 h-11 w-40 rounded" />
