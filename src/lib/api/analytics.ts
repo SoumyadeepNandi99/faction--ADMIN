@@ -201,6 +201,7 @@ export interface MonetizationData {
         push_reachable_users: number; total_students: number; push_reach_pct: number | null;
         app_users: number; web_users: number; platform_users: number;
         app_pct: number | null; web_pct: number | null;
+        lost_reachability: number; lapsed_14d: number;
     };
 }
 

@@ -64,4 +64,5 @@ export const EXPLAIN = {
     freeVsPremium: "The split of the student base between free and premium plans.",
     notifEngagement: "How notifications are performing: the read rate (attention earned) and push reachability (how many devices can be reached at all).",
     appVsWeb: "How many students reach the platform through the mobile app versus the web browser, based on their login sessions. A student who uses both is counted in both, so the two numbers can add up to more than the total. Useful for deciding where to invest and for reading feature reach by platform.",
+    likelyChurned: "A proxy for churn, NOT a confirmed uninstall count. The app cannot report its own removal, so we infer risk from sessions. 'Lost app reachability' is a student who once had a push token but no longer has an active push-enabled session (their device was reachable and now isn't; could also be a logout or expired token). 'Not seen in 14+ days' is a student with no active session and no recent activity. Treat these as early warning signals, not exact uninstalls.",
 } as const;
