@@ -287,6 +287,8 @@ export default function PotdPage() {
     const [poolQuestions, setPoolQuestions] = useState<Question[]>([]);
     const [loadingPool, setLoadingPool] = useState(false);
     const [schedPicked, setSchedPicked] = useState<string[]>([]); // ordered question ids
+    // Filter the eligible pool by whether a question has already been a POTD.
+    const [servedFilter, setServedFilter] = useState<"all" | "never" | "served">("all");
     const [savingSched, setSavingSched] = useState(false);
     const [existingSchedId, setExistingSchedId] = useState<string | null>(null);
     const [loadingExisting, setLoadingExisting] = useState(false);
@@ -389,6 +391,24 @@ export default function PotdPage() {
     };
 
     const poolMap = useMemo(() => new Map(poolQuestions.map((q) => [q.id, q])), [poolQuestions]);
+
+    // Split the eligible pool by served status. A question is "served" if it has a
+    // qotd_served_date (it has appeared as a POTD before).
+    const servedCounts = useMemo(() => {
+        let served = 0;
+        for (const q of poolQuestions) if (q.qotd_served_date) served++;
+        return { all: poolQuestions.length, served, never: poolQuestions.length - served };
+    }, [poolQuestions]);
+
+    // The pool after the served filter. Questions already picked for this date are
+    // always kept visible (so a filtered-out pick can still be unpicked/reordered).
+    const visiblePool = useMemo(() => {
+        if (servedFilter === "all") return poolQuestions;
+        return poolQuestions.filter((q) => {
+            if (schedPicked.includes(q.id)) return true;
+            return servedFilter === "served" ? !!q.qotd_served_date : !q.qotd_served_date;
+        });
+    }, [poolQuestions, servedFilter, schedPicked]);
 
     return (
         <div className="flex flex-col gap-6">
@@ -755,6 +775,31 @@ export default function PotdPage() {
                                 </div>
                             </div>
 
+                            {/* Served / never-served filter for the eligible pool. */}
+                            {poolQuestions.length > 0 && (
+                                <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs w-fit">
+                                    {([
+                                        { key: "all", label: "All", count: servedCounts.all },
+                                        { key: "never", label: "Never served", count: servedCounts.never },
+                                        { key: "served", label: "Already served", count: servedCounts.served },
+                                    ] as const).map((opt) => (
+                                        <button
+                                            key={opt.key}
+                                            type="button"
+                                            onClick={() => setServedFilter(opt.key)}
+                                            className={`rounded-md px-3 py-1.5 font-medium transition-colors cursor-pointer ${
+                                                servedFilter === opt.key
+                                                    ? "bg-background text-foreground shadow-sm"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            }`}
+                                        >
+                                            {opt.label}
+                                            <span className="ml-1.5 tabular-nums opacity-70">{opt.count}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             {loadingPool ? (
                                 <div className="flex flex-col gap-3">
                                     {[1, 2, 3].map((i) => (
@@ -769,9 +814,21 @@ export default function PotdPage() {
                                         Add questions to the POTD pool (Pool tab) for this exam first.
                                     </p>
                                 </div>
+                            ) : visiblePool.length === 0 ? (
+                                <div className="p-10 text-center flex flex-col items-center">
+                                    <FileText className="h-9 w-9 text-muted-foreground mb-3" />
+                                    <h3 className="text-base font-bold text-foreground">
+                                        {servedFilter === "served" ? "No already-served questions" : "No never-served questions"}
+                                    </h3>
+                                    <p className="text-muted-foreground mt-1 text-sm">
+                                        {servedFilter === "served"
+                                            ? "None of the eligible questions for this exam have been served as a POTD yet."
+                                            : "Every eligible question for this exam has already been served."}
+                                    </p>
+                                </div>
                             ) : (
                                 <div className="flex flex-col gap-3">
-                                    {poolQuestions.map((q) => {
+                                    {visiblePool.map((q) => {
                                         const picked = schedPicked.includes(q.id);
                                         const order = schedPicked.indexOf(q.id) + 1;
                                         return (
