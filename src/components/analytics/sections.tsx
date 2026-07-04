@@ -34,6 +34,7 @@ import {
     Card,
     EmptyState,
     ErrorState,
+    InfoTip,
     KpiCard,
     Section,
     Stat,
@@ -51,6 +52,7 @@ import {
 import { AnalyticsFetchError, type Filters } from "@/lib/api/analytics";
 import { formatDate } from "@/lib/datetime";
 import { humanHours, kpi, n, pct } from "./format";
+import { EXPLAIN } from "./explain";
 
 // ---------------------------------------------------------------------------
 // shared helpers
@@ -135,6 +137,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     icon={<Zap className="h-5 w-5" />}
                     sub="distinct solvers today (IST)"
                     spark={dauSpark.length >= 2 ? dauSpark : undefined}
+                    info={EXPLAIN.dau}
                 />
                 <KpiCard
                     label="Weekly Active Solvers"
@@ -142,6 +145,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     accent="blue"
                     icon={<Users className="h-5 w-5" />}
                     sub="last 7 days"
+                    info={EXPLAIN.wau}
                 />
                 <KpiCard
                     label="Monthly Active Solvers"
@@ -149,6 +153,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     accent="purple"
                     icon={<Users className="h-5 w-5" />}
                     sub="last 30 days"
+                    info={EXPLAIN.mau}
                 />
                 <KpiCard
                     label="Stickiness (DAU/MAU)"
@@ -156,18 +161,21 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     accent="pink"
                     icon={<Repeat className="h-5 w-5" />}
                     sub={s && s.stickiness_pct != null && s.stickiness_pct >= 20 ? "healthy (≥20%)" : "target ≥20%"}
+                    info={EXPLAIN.stickiness}
                 />
                 <KpiCard
                     label="Questions / Active User / Day"
                     value={kpi(s?.questions_per_active_user)}
                     icon={<CheckCircle2 className="h-5 w-5" />}
                     sub="avg on active days"
+                    info={EXPLAIN.qpau}
                 />
                 <KpiCard
                     label="Total Students"
                     value={kpi(s?.total_students)}
                     icon={<Users className="h-5 w-5" />}
                     sub="matching filters"
+                    info={EXPLAIN.totalStudents}
                 />
                 <KpiCard
                     label="New Signups"
@@ -175,6 +183,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     accent="blue"
                     icon={<UserPlus className="h-5 w-5" />}
                     sub="in selected range"
+                    info={EXPLAIN.newSignups}
                 />
                 <KpiCard
                     label="Growth vs Prev Period"
@@ -182,11 +191,12 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                     accent={s && s.growth_pct != null && s.growth_pct < 0 ? "pink" : "brand"}
                     icon={<TrendingUp className="h-5 w-5" />}
                     sub={`${n(s?.prev_signups)} previous`}
+                    info={EXPLAIN.growth}
                 />
             </KpiStrip>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Daily Active Solvers" subtitle="Distinct users with ≥1 attempt (IST day)">
+                <Card title="Daily Active Solvers" subtitle="Distinct users with ≥1 attempt (IST day)" info={EXPLAIN.dauChart}>
                     {loading ? (
                         <ChartSkeleton />
                     ) : error ? (
@@ -197,7 +207,7 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                         <EmptyState message="Not enough activity history to plot a trend yet." />
                     )}
                 </Card>
-                <Card title="New Signups / Day">
+                <Card title="New Signups / Day" info={EXPLAIN.signupsChart}>
                     {loading ? (
                         <ChartSkeleton />
                     ) : error ? (
@@ -224,17 +234,17 @@ export function ActivationSection({ filters }: { filters: Filters }) {
     return (
         <Section
             title="Activation & Retention"
-            description="Do new users reach the first solve — and do they come back?"
+            description="Do new users reach the first solve, and do they come back?"
             icon={<Rocket className="h-5 w-5" />}
         >
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="Activation Rate (48h)" value={pct(s?.activation_pct)} icon={<Rocket className="h-5 w-5" />} sub="solve ≥1 Q within 48h of signup" />
-                <KpiCard label="Activated Users" value={kpi(s?.activated_48h)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub={`of ${n(s?.signups)} signups`} />
-                <KpiCard label="Median Time to First Solve" value={humanHours(s?.median_hours_to_first_solve)} accent="purple" icon={<Zap className="h-5 w-5" />} sub="signup → first attempt" />
-                <KpiCard label="Signups (range)" value={kpi(s?.signups)} icon={<UserPlus className="h-5 w-5" />} sub="cohort size" />
+                <KpiCard label="Activation Rate (48h)" value={pct(s?.activation_pct)} icon={<Rocket className="h-5 w-5" />} sub="solve ≥1 Q within 48h of signup" info={EXPLAIN.activation48h} />
+                <KpiCard label="Activated Users" value={kpi(s?.activated_48h)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub={`of ${n(s?.signups)} signups`} info={EXPLAIN.activatedUsers} />
+                <KpiCard label="Median Time to First Solve" value={humanHours(s?.median_hours_to_first_solve)} accent="purple" icon={<Zap className="h-5 w-5" />} sub="signup to first attempt" info={EXPLAIN.timeToFirstSolve} />
+                <KpiCard label="Signups (range)" value={kpi(s?.signups)} icon={<UserPlus className="h-5 w-5" />} sub="cohort size" info={EXPLAIN.signupsCohort} />
             </KpiStrip>
 
-            <Card title="Retention by Weekly Signup Cohort" subtitle="% of each week's new users active again on day 1 / 7 / 30 (IST)">
+            <Card title="Retention by Weekly Signup Cohort" subtitle="% of each week's new users active again on day 1 / 7 / 30 (IST)" info={EXPLAIN.retentionCohorts}>
                 {loading ? (
                     <ChartSkeleton height={180} />
                 ) : error ? (
@@ -300,13 +310,13 @@ export function StreakSection({ filters }: { filters: Filters }) {
     return (
         <Section title="Habit & Streaks" description="Daily-habit consistency across the student base" icon={<Flame className="h-5 w-5" />}>
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="On an Active Streak" value={pct(s?.on_streak_pct)} icon={<Flame className="h-5 w-5" />} sub={`${n(s?.on_streak_now)} of ${n(s?.total_with_stats)} users`} />
-                <KpiCard label="Avg Current Streak" value={kpi(s?.avg_current_streak)} accent="blue" icon={<Activity className="h-5 w-5" />} sub="days" />
-                <KpiCard label="Best Streak" value={kpi(s?.best_streak)} accent="purple" icon={<Trophy className="h-5 w-5" />} sub="days (all-time)" />
-                <KpiCard label="Streak ≥ 7 / ≥ 30" value={`${n(s?.streak_7plus)} / ${n(s?.streak_30plus)}`} accent="pink" icon={<Star className="h-5 w-5" />} sub="committed users" />
+                <KpiCard label="On an Active Streak" value={pct(s?.on_streak_pct)} icon={<Flame className="h-5 w-5" />} sub={`${n(s?.on_streak_now)} of ${n(s?.total_with_stats)} users`} info={EXPLAIN.onStreak} />
+                <KpiCard label="Avg Current Streak" value={kpi(s?.avg_current_streak)} accent="blue" icon={<Activity className="h-5 w-5" />} sub="days" info={EXPLAIN.avgStreak} />
+                <KpiCard label="Best Streak" value={kpi(s?.best_streak)} accent="purple" icon={<Trophy className="h-5 w-5" />} sub="days (all-time)" info={EXPLAIN.bestStreak} />
+                <KpiCard label="Streak ≥ 7 / ≥ 30" value={`${n(s?.streak_7plus)} / ${n(s?.streak_30plus)}`} accent="pink" icon={<Star className="h-5 w-5" />} sub="committed users" info={EXPLAIN.streak7_30} />
             </KpiStrip>
 
-            <Card title="Current-Streak Distribution" subtitle="How many students sit in each streak band">
+            <Card title="Current-Streak Distribution" subtitle="How many students sit in each streak band" info={EXPLAIN.streakDist}>
                 {loading ? (
                     <ChartSkeleton />
                 ) : error ? (
@@ -360,14 +370,14 @@ export function FeatureUsageSection({ filters }: { filters: Filters }) {
     return (
         <Section title="Feature Usage" description="Which features the active base actually touches" icon={<Layers className="h-5 w-5" />}>
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="POTD Participation" value={pct(potd?.participation_pct)} icon={<CalendarClock className="h-5 w-5" />} sub={potd?.potd_day ? `${n(potd.attempters)}/${n(potd.dau)} DAU · ${formatDate(potd.potd_day)}` : "latest POTD"} />
-                <KpiCard label="POTD Solve Rate" value={pct(potd?.solve_rate_pct)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub="correct ÷ attempted" />
-                <KpiCard label="Users Generating Tests" value={pct(ct?.generating_pct)} accent="purple" icon={<BookOpenCheck className="h-5 w-5" />} sub={`${n(ct?.users_with_test)} users · ${n(ct?.total_tests)} tests`} />
-                <KpiCard label="Contest Missed Rate" value={pct(contest?.missed_pct)} accent="pink" icon={<AlertTriangle className="h-5 w-5" />} sub={`${n(contest?.participants)} participants`} />
+                <KpiCard label="POTD Participation" value={pct(potd?.participation_pct)} icon={<CalendarClock className="h-5 w-5" />} sub={potd?.potd_day ? `${n(potd.attempters)}/${n(potd.dau)} DAU · ${formatDate(potd.potd_day)}` : "latest POTD"} info={EXPLAIN.potdParticipation} />
+                <KpiCard label="POTD Solve Rate" value={pct(potd?.solve_rate_pct)} accent="blue" icon={<CheckCircle2 className="h-5 w-5" />} sub="correct ÷ attempted" info={EXPLAIN.potdSolveRate} />
+                <KpiCard label="Users Generating Tests" value={pct(ct?.generating_pct)} accent="purple" icon={<BookOpenCheck className="h-5 w-5" />} sub={`${n(ct?.users_with_test)} users · ${n(ct?.total_tests)} tests`} info={EXPLAIN.usersGeneratingTests} />
+                <KpiCard label="Contest Missed Rate" value={pct(contest?.missed_pct)} accent="pink" icon={<AlertTriangle className="h-5 w-5" />} sub={`${n(contest?.participants)} participants`} info={EXPLAIN.contestMissed} />
             </KpiStrip>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Custom-Test Funnel" subtitle="not_started → active → finished">
+                <Card title="Custom-Test Funnel" subtitle="not_started → active → finished" info={EXPLAIN.customTestFunnel}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -378,7 +388,7 @@ export function FeatureUsageSection({ filters }: { filters: Filters }) {
                         <EmptyState message="No custom tests generated for the current filters." />
                     )}
                 </Card>
-                <Card title="Weekly Feature Reach" subtitle={reach ? `% of ${reach.wau.toLocaleString()} WAU touching each feature` : "% of WAU touching each feature"}>
+                <Card title="Weekly Feature Reach" subtitle={reach ? `% of ${reach.wau.toLocaleString()} WAU touching each feature` : "% of WAU touching each feature"} info={EXPLAIN.featureReach}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -389,7 +399,7 @@ export function FeatureUsageSection({ filters }: { filters: Filters }) {
                         <EmptyState message="No weekly active users to measure reach against." />
                     )}
                 </Card>
-                <Card title="Contests" subtitle="Participation & accuracy">
+                <Card title="Contests" subtitle="Participation & accuracy" info={EXPLAIN.contests}>
                     {loading ? (
                         <ChartSkeleton height={120} />
                     ) : error ? (
@@ -405,7 +415,7 @@ export function FeatureUsageSection({ filters }: { filters: Filters }) {
                         <EmptyState message="No contest leaderboard entries yet." />
                     )}
                 </Card>
-                <Card title="Doubt Forum" subtitle="Community Q&A activity">
+                <Card title="Doubt Forum" subtitle="Community Q&A activity" info={EXPLAIN.doubtForum}>
                     {loading ? (
                         <ChartSkeleton height={120} />
                     ) : error ? (
@@ -493,18 +503,20 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                 }
                 label="Total Questions Solved"
                 icon={<Swords className="h-6 w-6" />}
+                info={EXPLAIN.totalSolvedHero}
             />
 
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="PYQs Solved" value={kpi(s?.pyq_solved)} icon={<GraduationCap className="h-5 w-5" />} sub={pyqShare != null ? `${pyqShare}% of all solves · real exam questions` : "previous-year exam questions"} />
-                <KpiCard label="Non-PYQs Solved" value={kpi(s?.non_pyq_solved)} accent="blue" icon={<BookOpenCheck className="h-5 w-5" />} sub="practice & concept questions" />
-                <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} accent="purple" icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy" />
-                <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub={solveRate != null ? `correct + wrong · ${solveRate}% solved` : "correct + wrong"} />
+                <KpiCard label="PYQs Solved" value={kpi(s?.pyq_solved)} icon={<GraduationCap className="h-5 w-5" />} sub={pyqShare != null ? `${pyqShare}% of all solves · real exam questions` : "previous-year exam questions"} info={EXPLAIN.pyqSolved} />
+                <KpiCard label="Non-PYQs Solved" value={kpi(s?.non_pyq_solved)} accent="blue" icon={<BookOpenCheck className="h-5 w-5" />} sub="practice & concept questions" info={EXPLAIN.nonPyqSolved} />
+                <KpiCard label="Overall Accuracy" value={pct(s?.avg_accuracy_pct)} accent="purple" icon={<CheckCircle2 className="h-5 w-5" />} sub="avg of per-user accuracy" info={EXPLAIN.overallAccuracy} />
+                <KpiCard label="Total Attempts" value={kpi(s?.total_attempts)} accent="pink" icon={<Activity className="h-5 w-5" />} sub={solveRate != null ? `correct + wrong · ${solveRate}% solved` : "correct + wrong"} info={EXPLAIN.totalAttempts} />
             </KpiStrip>
 
-            {/* Questions solved over time — the growth trend ("stocks" view). */}
+            {/* Questions solved over time (the growth trend, "stocks" view). */}
             <Card
                 title="Questions Solved Over Time"
+                info={EXPLAIN.solvedTrend}
                 subtitle={trendMode === "cumulative" ? "Cumulative solves (growth)" : "Solves per day (IST)"}
                 right={
                     <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
@@ -533,14 +545,14 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                         <AreaChart points={dailySeries} labels={trendLabels} height={240} valueLabel="solved that day" color="var(--color-accent-blue)" />
                     )
                 ) : trend.length === 1 ? (
-                    <EmptyState message="Only one day of solving activity so far — the trend line appears once there are at least two days." />
+                    <EmptyState message="Only one day of solving activity so far. The trend line appears once there are at least two days." />
                 ) : (
                     <EmptyState message="No solving activity in the selected range." />
                 )}
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="PYQ vs Other" subtitle="Solves by source">
+                <Card title="PYQ vs Other" subtitle="Solves by source" info={EXPLAIN.pyqVsOther}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -551,7 +563,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                         <EmptyState message="No solved questions for the current filters." />
                     )}
                 </Card>
-                <Card title="Difficulty Mix Solved" subtitle="Aggregate solved counts by difficulty">
+                <Card title="Difficulty Mix Solved" subtitle="Aggregate solved counts by difficulty" info={EXPLAIN.difficultyMix}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -569,6 +581,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                 <Card
                     title="Solved by Subject"
                     subtitle="Share of total questions solved"
+                    info={EXPLAIN.solvedBySubject}
                     right={subjectTotal > 0 ? <span className="text-xs text-muted-foreground">{subjectTotal.toLocaleString()} solves</span> : undefined}
                 >
                     {loading ? (
@@ -584,6 +597,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                 <Card
                     title="Solved by Exam"
                     subtitle="Questions tagged for each exam (tags overlap)"
+                    info={EXPLAIN.solvedByExam}
                 >
                     {loading ? (
                         <ChartSkeleton height={160} />
@@ -599,8 +613,8 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
 
             {/* Weak-topics remain, but demoted below the flagship numbers. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <KpiCard label="Users w/ Weak Topics" value={kpi(s?.users_with_weak_topics)} accent="purple" icon={<AlertTriangle className="h-5 w-5" />} sub="flagged for targeted review" unavailable={s != null && s.users_with_weak_topics === 0} unavailableReason="No weak-topic rows recorded yet (feature just launched)." />
-                <KpiCard label="Avg Weakness Score" value={kpi(s?.avg_weakness_score)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="higher = weaker" unavailable={s != null && s.avg_weakness_score == null} unavailableReason="No weak-topic rows to average yet." />
+                <KpiCard label="Users w/ Weak Topics" value={kpi(s?.users_with_weak_topics)} accent="purple" icon={<AlertTriangle className="h-5 w-5" />} sub="flagged for targeted review" info={EXPLAIN.weakTopicUsers} unavailable={s != null && s.users_with_weak_topics === 0} unavailableReason="No weak-topic rows recorded yet (feature just launched)." />
+                <KpiCard label="Avg Weakness Score" value={kpi(s?.avg_weakness_score)} accent="pink" icon={<Activity className="h-5 w-5" />} sub="higher = weaker" info={EXPLAIN.avgWeakness} unavailable={s != null && s.avg_weakness_score == null} unavailableReason="No weak-topic rows to average yet." />
             </div>
         </Section>
     );
@@ -614,6 +628,7 @@ function HeadlineBanner({
     caption,
     label,
     icon,
+    info,
 }: {
     loading: boolean;
     error: unknown;
@@ -621,6 +636,7 @@ function HeadlineBanner({
     caption: string;
     label: string;
     icon: React.ReactNode;
+    info?: string;
 }) {
     if (error) {
         return (
@@ -637,7 +653,10 @@ function HeadlineBanner({
                     {icon}
                 </div>
                 <div className="min-w-0">
-                    <p className="text-sm font-medium text-muted-foreground">{label}</p>
+                    <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+                        {info && <InfoTip text={info} />}
+                    </div>
                     {loading ? (
                         <Skeleton className="mt-1 h-11 w-40 rounded" />
                     ) : (
@@ -671,14 +690,14 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
     return (
         <Section title="Monetization & Notifications" description="Plan mix, notification engagement and push reach" icon={<CreditCard className="h-5 w-5" />}>
             <KpiStrip loading={loading} error={error} count={4}>
-                <KpiCard label="Premium Share" value={pct(s?.premium_pct)} icon={<CreditCard className="h-5 w-5" />} sub={`${n(s?.premium)} premium · ${n(s?.free)} free`} />
-                <KpiCard label="Notification Read Rate" value={pct(s?.notif_read_pct)} accent="blue" icon={<MessageSquare className="h-5 w-5" />} sub={`${n(s?.notif_read)} / ${n(s?.notif_total)} read`} />
-                <KpiCard label="Push Reachability" value={pct(s?.push_reach_pct)} accent="purple" icon={<Zap className="h-5 w-5" />} sub={`${n(s?.push_reachable_users)} of ${n(s?.total_students)} students`} />
-                <KpiCard label="Total Notifications" value={kpi(s?.notif_total)} accent="pink" icon={<MessageSquare className="h-5 w-5" />} sub="in selected range" />
+                <KpiCard label="Premium Share" value={pct(s?.premium_pct)} icon={<CreditCard className="h-5 w-5" />} sub={`${n(s?.premium)} premium · ${n(s?.free)} free`} info={EXPLAIN.premiumShare} />
+                <KpiCard label="Notification Read Rate" value={pct(s?.notif_read_pct)} accent="blue" icon={<MessageSquare className="h-5 w-5" />} sub={`${n(s?.notif_read)} / ${n(s?.notif_total)} read`} info={EXPLAIN.notifReadRate} />
+                <KpiCard label="Push Reachability" value={pct(s?.push_reach_pct)} accent="purple" icon={<Zap className="h-5 w-5" />} sub={`${n(s?.push_reachable_users)} of ${n(s?.total_students)} students`} info={EXPLAIN.pushReach} />
+                <KpiCard label="Total Notifications" value={kpi(s?.notif_total)} accent="pink" icon={<MessageSquare className="h-5 w-5" />} sub="in selected range" info={EXPLAIN.totalNotifications} />
             </KpiStrip>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card title="Free vs Premium" subtitle="Subscription mix of the student base">
+                <Card title="Free vs Premium" subtitle="Subscription mix of the student base" info={EXPLAIN.freeVsPremium}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -689,7 +708,7 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                         <EmptyState message="No students match the current filters." />
                     )}
                 </Card>
-                <Card title="Notification Engagement" subtitle="Read rate & push reachability">
+                <Card title="Notification Engagement" subtitle="Read rate & push reachability" info={EXPLAIN.notifEngagement}>
                     {loading ? (
                         <ChartSkeleton height={160} />
                     ) : error ? (
@@ -699,7 +718,7 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                             <LabeledBar label="Read rate" value={s.notif_read_pct} />
                             <LabeledBar label="Push reachability" value={s.push_reach_pct} />
                             {s.premium === 0 && (
-                                <UnavailablePill reason="No PREMIUM subscribers yet — revenue metrics will populate once paid plans exist." />
+                                <UnavailablePill reason="No PREMIUM subscribers yet. Revenue metrics will populate once paid plans exist." />
                             )}
                         </div>
                     ) : (

@@ -12,6 +12,68 @@ import { cn } from "@/lib/utils";
 import { Sparkline } from "./charts";
 
 // ---------------------------------------------------------------------------
+// InfoTip — a small "i" button that explains a metric. Opens on hover AND on
+// click/tap (click keeps it open so it's readable on touch and by keyboard).
+// The text says what the metric is and why it is useful.
+// ---------------------------------------------------------------------------
+export function InfoTip({ text, className }: { text: string; className?: string }) {
+    const [open, setOpen] = useState(false);
+    const [pinned, setPinned] = useState(false); // clicked-open stays until dismissed
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!pinned) return;
+        const onDoc = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) {
+                setPinned(false);
+                setOpen(false);
+            }
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                setPinned(false);
+                setOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", onDoc);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onDoc);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, [pinned]);
+
+    const show = open || pinned;
+    return (
+        <div ref={ref} className={cn("relative shrink-0", className)}>
+            <button
+                type="button"
+                aria-label="What is this metric?"
+                onMouseEnter={() => setOpen(true)}
+                onMouseLeave={() => setOpen(false)}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setOpen(false)}
+                onClick={e => {
+                    e.stopPropagation();
+                    setPinned(p => !p);
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/70 hover:text-brand-500 hover:bg-foreground/5 transition-colors cursor-help"
+            >
+                <Info className="h-3.5 w-3.5" />
+            </button>
+            {show && (
+                <div
+                    role="tooltip"
+                    className="absolute right-0 top-6 z-30 w-60 rounded-xl border border-(--card-border) bg-background/98 p-3 text-xs leading-relaxed text-muted-foreground shadow-xl backdrop-blur-sm"
+                >
+                    {text}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // KpiCard — headline metric with an optional trailing sparkline + sub-label.
 // ---------------------------------------------------------------------------
 export function KpiCard({
@@ -23,6 +85,7 @@ export function KpiCard({
     accent = "brand",
     unavailable,
     unavailableReason,
+    info,
 }: {
     label: string;
     value: string | number;
@@ -32,6 +95,7 @@ export function KpiCard({
     accent?: "brand" | "blue" | "purple" | "pink";
     unavailable?: boolean;
     unavailableReason?: string;
+    info?: string;
 }) {
     const accentColor = {
         brand: "text-brand-400",
@@ -43,9 +107,12 @@ export function KpiCard({
     if (unavailable) {
         return (
             <div className="glass-card p-5 flex flex-col gap-2 relative overflow-hidden">
-                <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground font-medium text-sm">{label}</span>
-                    {icon && <div className="p-2 bg-foreground/5 rounded-lg border border-(--card-border) opacity-50">{icon}</div>}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-muted-foreground font-medium text-sm truncate">{label}</span>
+                        {info && <InfoTip text={info} />}
+                    </div>
+                    {icon && <div className="p-2 bg-foreground/5 rounded-lg border border-(--card-border) opacity-50 shrink-0">{icon}</div>}
                 </div>
                 <UnavailablePill reason={unavailableReason} />
             </div>
@@ -55,9 +122,12 @@ export function KpiCard({
     return (
         <div className="glass-card p-5 flex flex-col gap-2 relative overflow-hidden group">
             <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-brand-500/10 blur-2xl group-hover:bg-brand-500/20 transition-colors" />
-            <div className="flex items-center justify-between">
-                <span className="text-muted-foreground font-medium text-sm">{label}</span>
-                {icon && <div className={cn("p-2 bg-foreground/5 rounded-lg border border-(--card-border)", accentColor)}>{icon}</div>}
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-muted-foreground font-medium text-sm truncate">{label}</span>
+                    {info && <InfoTip text={info} />}
+                </div>
+                {icon && <div className={cn("p-2 bg-foreground/5 rounded-lg border border-(--card-border) shrink-0", accentColor)}>{icon}</div>}
             </div>
             <div className="flex items-end justify-between gap-2">
                 <h2 className="text-2xl font-bold text-foreground tracking-tight truncate">
@@ -114,19 +184,24 @@ export function Card({
     right,
     children,
     className,
+    info,
 }: {
     title?: string;
     subtitle?: string;
     right?: React.ReactNode;
     children: React.ReactNode;
     className?: string;
+    info?: string;
 }) {
     return (
         <div className={cn("glass-card p-5 flex flex-col gap-4", className)}>
             {(title || right) && (
                 <div className="flex items-start justify-between gap-3">
-                    <div>
-                        {title && <h3 className="font-semibold text-foreground">{title}</h3>}
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                            {title && <h3 className="font-semibold text-foreground">{title}</h3>}
+                            {info && <InfoTip text={info} />}
+                        </div>
                         {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
                     </div>
                     {right}
