@@ -14,6 +14,8 @@ import {
     CalendarDays,
     Layers,
     Trash2,
+    Eye,
+    ImageIcon,
 } from "lucide-react";
 import "katex/dist/katex.min.css";
 import Latex from "react-latex";
@@ -22,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { getApiError } from "@/lib/utils";
 import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
+import { QuestionPreviewModal } from "@/components/question/question-preview-modal";
 
 interface ClassOption { id: string; name: string; }
 interface SubjectOption { id: string; subject_type: string; class_id: string; }
@@ -36,6 +39,8 @@ interface Question {
     type?: string;
     exam_type: string[];
     marks?: number;
+    // Present on the list response — lets us flag/preview image questions.
+    question_image?: string | null;
     // POTD-pool eligibility (separate from contest reservation `hidden`).
     is_qotd_eligible: boolean;
     // The IST date this question was served as the POTD (null = never served).
@@ -59,6 +64,8 @@ type Tab = "pool" | "schedule";
 
 export default function PotdPage() {
     const [tab, setTab] = useState<Tab>("pool");
+    // Question id currently open in the full-detail preview modal (null = closed).
+    const [previewId, setPreviewId] = useState<string | null>(null);
 
     // ---- Shared cascade selection state (used by both tabs) ----
     const [classes, setClasses] = useState<ClassOption[]>([]);
@@ -628,24 +635,32 @@ export default function PotdPage() {
                             {questions.map((q) => {
                                 const isChecked = checked.has(q.id);
                                 return (
-                                    <button
+                                    <div
                                         key={q.id}
-                                        onClick={() => toggleChecked(q.id)}
-                                        className={`text-left rounded-xl border p-4 flex gap-4 transition-all cursor-pointer ${
+                                        className={`rounded-xl border p-4 flex gap-4 transition-all ${
                                             isChecked
                                                 ? "border-brand-500 bg-brand-500/5"
                                                 : "border-(--card-border) hover:bg-foreground/5"
                                         }`}
                                     >
-                                        <div
-                                            className={`mt-0.5 h-5 w-5 shrink-0 rounded-md border flex items-center justify-center transition-colors ${
-                                                isChecked ? "border-brand-500 bg-brand-500 text-white" : "border-(--card-border)"
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleChecked(q.id)}
+                                            aria-label={isChecked ? "Deselect question" : "Select question"}
+                                            className={`mt-0.5 h-5 w-5 shrink-0 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
+                                                isChecked ? "border-brand-500 bg-brand-500 text-white" : "border-(--card-border) hover:border-brand-500"
                                             }`}
                                         >
                                             {isChecked && <Check className="h-3.5 w-3.5" />}
-                                        </div>
+                                        </button>
 
-                                        <div className="flex-1 min-w-0">
+                                        <div
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => toggleChecked(q.id)}
+                                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleChecked(q.id); } }}
+                                            className="flex-1 min-w-0 cursor-pointer"
+                                        >
                                             <div className="flex flex-wrap gap-2 items-center mb-2">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${diffColor(q.difficulty)}`}>
                                                     {getDifficultyLabel(q.difficulty)}
@@ -658,6 +673,11 @@ export default function PotdPage() {
                                                 {q.marks != null && (
                                                     <span className="px-2 py-0.5 rounded text-xs text-muted-foreground bg-foreground/5 border border-(--card-border)">
                                                         {q.marks}M
+                                                    </span>
+                                                )}
+                                                {q.question_image && (
+                                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent-blue/10 text-accent-blue border border-accent-blue/20">
+                                                        <ImageIcon className="h-3 w-3" /> Image
                                                     </span>
                                                 )}
                                                 {q.is_qotd_eligible && (
@@ -678,7 +698,16 @@ export default function PotdPage() {
                                                 <Latex>{q.question_text}</Latex>
                                             </div>
                                         </div>
-                                    </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setPreviewId(q.id)}
+                                            className="shrink-0 self-start flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-(--card-border) text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
+                                            title="Preview full question, image & answer"
+                                        >
+                                            <Eye className="h-3.5 w-3.5" /> Preview
+                                        </button>
+                                    </div>
                                 );
                             })}
                         </div>
@@ -746,21 +775,29 @@ export default function PotdPage() {
                                         const picked = schedPicked.includes(q.id);
                                         const order = schedPicked.indexOf(q.id) + 1;
                                         return (
-                                            <button
+                                            <div
                                                 key={q.id}
-                                                onClick={() => togglePicked(q.id)}
-                                                className={`text-left rounded-xl border p-4 flex gap-4 transition-all cursor-pointer ${
+                                                className={`rounded-xl border p-4 flex gap-4 transition-all ${
                                                     picked ? "border-brand-500 bg-brand-500/5" : "border-(--card-border) hover:bg-foreground/5"
                                                 }`}
                                             >
-                                                <div
-                                                    className={`mt-0.5 h-5 w-5 shrink-0 rounded-md border flex items-center justify-center text-xs font-bold transition-colors ${
-                                                        picked ? "border-brand-500 bg-brand-500 text-white" : "border-(--card-border)"
+                                                <button
+                                                    type="button"
+                                                    onClick={() => togglePicked(q.id)}
+                                                    aria-label={picked ? "Unpick question" : "Pick question"}
+                                                    className={`mt-0.5 h-5 w-5 shrink-0 rounded-md border flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${
+                                                        picked ? "border-brand-500 bg-brand-500 text-white" : "border-(--card-border) hover:border-brand-500"
                                                     }`}
                                                 >
                                                     {picked ? order : ""}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
+                                                </button>
+                                                <div
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={() => togglePicked(q.id)}
+                                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); togglePicked(q.id); } }}
+                                                    className="flex-1 min-w-0 cursor-pointer"
+                                                >
                                                     <div className="flex flex-wrap gap-2 items-center mb-2">
                                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${diffColor(q.difficulty)}`}>
                                                             {getDifficultyLabel(q.difficulty)}
@@ -768,6 +805,11 @@ export default function PotdPage() {
                                                         {q.type && (
                                                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-foreground/5 text-muted-foreground border border-(--card-border)">
                                                                 {typeLabel(q.type)}
+                                                            </span>
+                                                        )}
+                                                        {q.question_image && (
+                                                            <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent-blue/10 text-accent-blue border border-accent-blue/20">
+                                                                <ImageIcon className="h-3 w-3" /> Image
                                                             </span>
                                                         )}
                                                         {q.qotd_served_date && (
@@ -780,7 +822,15 @@ export default function PotdPage() {
                                                         <Latex>{q.question_text}</Latex>
                                                     </div>
                                                 </div>
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPreviewId(q.id)}
+                                                    className="shrink-0 self-start flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-(--card-border) text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
+                                                    title="Preview full question, image & answer"
+                                                >
+                                                    <Eye className="h-3.5 w-3.5" /> Preview
+                                                </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -855,6 +905,9 @@ export default function PotdPage() {
                     </p>
                 </div>
             )}
+
+            {/* Full-detail preview (image, options, answer, solution) */}
+            <QuestionPreviewModal questionId={previewId} onClose={() => setPreviewId(null)} />
         </div>
     );
 }
