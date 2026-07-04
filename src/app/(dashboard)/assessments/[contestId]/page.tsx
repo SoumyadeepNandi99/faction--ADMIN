@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { formatDateTime } from "@/lib/datetime";
 import {
-    findContestById, getContestQuestionsFull, getContestRanking,
+    findContestById, getContestQuestionsForAdmin, getContestRanking,
     type Contest, type ContestQuestionDetail, type ContestRankingResponse,
 } from "@/lib/api/contests";
 import { QuestionPreview } from "@/components/contest/question-preview";
@@ -46,10 +46,12 @@ export default function ContestDetailPage() {
         () => findContestById(contestId),
     );
 
-    // Full question list for the contest.
+    // Full question list for the contest. Uses the admin preview endpoint so the
+    // paper of an UPCOMING (not-yet-started) contest loads too — the student
+    // endpoint blocks that with "Contest has not started yet".
     const { data: questions, error: qError, isLoading: qLoading, mutate: refetchQuestions } = useSWR<ContestQuestionDetail[]>(
         contestId ? `contest-questions:${contestId}` : null,
-        () => getContestQuestionsFull(contestId),
+        () => getContestQuestionsForAdmin(contestId),
     );
 
     const isPast = contest?.status === "finished";
@@ -120,7 +122,7 @@ export default function ContestDetailPage() {
                 <div className="glass-card p-12 text-center flex flex-col items-center gap-3">
                     <RefreshCw className="h-8 w-8 text-destructive/50" />
                     <h3 className="text-lg font-bold">Contest not found</h3>
-                    <p className="text-sm text-muted-foreground">It may have been removed, or it isn&apos;t visible to your class/exam scope.</p>
+                    <p className="text-sm text-muted-foreground">It may have been removed, or the contest list is still loading. Try going back and reopening it.</p>
                 </div>
             </div>
         );

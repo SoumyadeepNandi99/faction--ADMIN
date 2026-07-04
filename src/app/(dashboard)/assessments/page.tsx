@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { toast } from "sonner";
 import { getApiError } from "@/lib/utils";
-import { createContest, getContestQuestionPool, getUsedQuestionIds, getPyqQuestionMap, getSubjectChapterMap, type Contest, type ContestStatus, type ExamType, type PoolQuestion, type PyqInfo, type ChapterRef } from "@/lib/api/contests";
+import { createContest, getContestQuestionPool, getUsedQuestionIds, getPyqQuestionMap, getSubjectChapterMap, listContestsForAdmin, type Contest, type ContestStatus, type ExamType, type PoolQuestion, type PyqInfo, type ChapterRef } from "@/lib/api/contests";
 import { formatDateTime } from "@/lib/datetime";
 import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
 import { QuestionPreviewModal } from "@/components/question/question-preview-modal";
@@ -73,12 +73,11 @@ export default function AssessmentsPage() {
     const [chapterFilter, setChapterFilter] = useState("");
     const [pyqFilter, setPyqFilter] = useState<"hide" | "only" | "all">("hide");
 
-    const swrKey = `/api/v1/contests/?type=${activeTab}`;
-    const { data, isLoading: loading, error, mutate } = useSWR(swrKey, (url: string) =>
-        apiClient.get(url).then(r => {
-            const d = r.data;
-            return Array.isArray(d) ? d : (d.contests || []);
-        })
+    // List ALL contests (across every class/exam) via the admin endpoint, which
+    // falls back to the scoped lists automatically if it isn't deployed yet.
+    const swrKey = `admin-contests:${activeTab}`;
+    const { data, isLoading: loading, error, mutate } = useSWR(swrKey, () =>
+        listContestsForAdmin({ type: activeTab, limit: 200 }).then(r => r.contests)
     );
     const contests: Contest[] = data || [];
 

@@ -34,6 +34,81 @@ export const getContests = (type: "upcoming" | "past") =>
         return (Array.isArray(d) ? d : d.contests || []) as Contest[];
     });
 
+// --- Admin: ALL contests, unscoped by the admin's class/exam ---
+// Backed by GET /api/v1/admin/contests (admin-only). Returns contests across
+// every class and exam, with server-side filters + pagination. The student
+// GET /contests/?type= stays scoped; this is the admin panel's list source.
+
+export interface AdminContestFilters {
+    type?: "upcoming" | "past" | "all";
+    class_id?: string;
+    exam_type?: ExamType;
+    status?: ContestStatus;
+    search?: string;
+    skip?: number;
+    limit?: number;
+}
+
+export interface AdminContestListResult {
+    contests: Contest[];
+    total: number;
+    skip: number;
+    limit: number;
+}
+
+/** Detects whether the admin-contests endpoints are deployed. Cached after the
+ * first call so we don't repeatedly probe a backend that hasn't shipped them yet.
+ * `null` = untested, `true`/`false` = the probed result. */
+let adminContestsAvailable: boolean | null = null;
+let adminQuestionsAvailable: boolean | null = null;
+
+export const getAllContestsAdmin = async (filters: AdminContestFilters = {}): Promise<AdminContestListResult> => {
+    const params: Record<string, string | number> = {};
+    if (filters.type) params.type = filters.type;
+    if (filters.class_id) params.class_id = filters.class_id;
+    if (filters.exam_type) params.exam_type = filters.exam_type;
+    if (filters.status) params.status = filters.status;
+    if (filters.search) params.search = filters.search;
+    params.skip = filters.skip ?? 0;
+    params.limit = filters.limit ?? 50;
+    const { data } = await apiClient.get("/api/v1/admin/contests", { params });
+    adminContestsAvailable = true;
+    return {
+        contests: (data?.contests ?? []) as Contest[],
+        total: Number(data?.total ?? (data?.contests?.length ?? 0)),
+        skip: Number(data?.skip ?? params.skip),
+        limit: Number(data?.limit ?? params.limit),
+    };
+};
+
+/**
+ * List contests for the admin panel. Prefers the unscoped admin endpoint; if it
+ * isn't deployed yet (404), falls back to the old class/exam-scoped
+ * `GET /contests/?type=` so the panel keeps working before/after the backend
+ * deploy. `type: "all"` maps to fetching upcoming + past on the fallback path.
+ */
+export const listContestsForAdmin = async (filters: AdminContestFilters = {}): Promise<AdminContestListResult> => {
+    if (adminContestsAvailable !== false) {
+        try {
+            return await getAllContestsAdmin(filters);
+        } catch (err: unknown) {
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            // Only fall back when the endpoint genuinely isn't there (404/405).
+            if (status === 404 || status === 405) {
+                adminContestsAvailable = false;
+            } else {
+                throw err;
+            }
+        }
+    }
+    // Fallback: scoped endpoints (only the admin's own class/exam).
+    const type = filters.type ?? "all";
+    const wanted: ("upcoming" | "past")[] = type === "all" ? ["upcoming", "past"] : [type];
+    const lists = await Promise.all(wanted.map(t => getContests(t).catch(() => [] as Contest[])));
+    const merged = Array.from(new Map(lists.flat().map(c => [c.id, c])).values());
+    return { contests: merged, total: merged.length, skip: 0, limit: merged.length };
+};
+
 export const createContest = (payload: ContestCreatePayload) =>
     apiClient.post<Contest>("/api/v1/contests/", payload).then(r => r.data);
 
@@ -166,11 +241,28 @@ interface ContestQuestionLite {
     id: string;
 }
 
-/** Fetch the question list for one contest. */
-export const getContestQuestions = (contestId: string) =>
-    apiClient
+/** Fetch just the question IDs for one contest (used for cross-contest dedup).
+ * Uses the admin preview route so UPCOMING contests are included (the student
+ * route 400s before start); falls back to the student route if not deployed. */
+export const getContestQuestions = async (contestId: string): Promise<string[]> => {
+    if (adminQuestionsAvailable !== false) {
+        try {
+            const { data } = await apiClient.get<{ questions: ContestQuestionLite[] }>(
+                `/api/v1/admin/contests/${contestId}/questions`,
+            );
+            adminQuestionsAvailable = true;
+            return (data?.questions ?? []).map(q => q.id);
+        } catch (err: unknown) {
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            if (status !== 404 && status !== 405) return []; // e.g. 400 not-started on fallback path
+            adminQuestionsAvailable = false;
+        }
+    }
+    return apiClient
         .get<{ questions: ContestQuestionLite[] }>(`/api/v1/contests/${contestId}/questions`)
-        .then(r => (r.data?.questions ?? []).map(q => q.id));
+        .then(r => (r.data?.questions ?? []).map(q => q.id))
+        .catch(() => [] as string[]);
+};
 
 /**
  * Build the set of question IDs that have already appeared in ANY contest
@@ -182,13 +274,11 @@ export const getContestQuestions = (contestId: string) =>
  * the whole picker; the worst case is a question not being filtered out.
  */
 export const getUsedQuestionIds = async (): Promise<Set<string>> => {
-    const [upcoming, past] = await Promise.all([
-        getContests("upcoming").catch(() => [] as Contest[]),
-        getContests("past").catch(() => [] as Contest[]),
-    ]);
-
-    // De-dupe contests by id (a contest could in principle appear in both lists).
-    const contests = Array.from(new Map([...upcoming, ...past].map(c => [c.id, c])).values());
+    // Span ALL contests (every class/exam) via the admin list so a question used
+    // in another class's contest is still excluded. Falls back to scoped lists.
+    const { contests } = await listContestsForAdmin({ type: "all", limit: 200 }).catch(
+        () => ({ contests: [] as Contest[], total: 0, skip: 0, limit: 0 }),
+    );
 
     const idLists = await Promise.all(
         contests.map(c => getContestQuestions(c.id).catch(() => [] as string[]))
@@ -232,16 +322,44 @@ export const getContestQuestionsFull = (contestId: string) =>
         .then(r => r.data?.questions ?? []);
 
 /**
+ * Fetch a contest's full paper for the admin panel. Prefers the admin preview
+ * endpoint (GET /api/v1/admin/contests/{id}/questions), which bypasses the
+ * start-time gate so UPCOMING contests' papers load. Falls back to the student
+ * endpoint if the admin route isn't deployed yet — note the fallback still 400s
+ * ("Contest has not started yet") for not-yet-started contests, which the detail
+ * page surfaces as a clear message.
+ */
+export const getContestQuestionsForAdmin = async (contestId: string): Promise<ContestQuestionDetail[]> => {
+    if (adminQuestionsAvailable !== false) {
+        try {
+            const { data } = await apiClient.get<{ questions: ContestQuestionDetail[] }>(
+                `/api/v1/admin/contests/${contestId}/questions`,
+            );
+            adminQuestionsAvailable = true;
+            return data?.questions ?? [];
+        } catch (err: unknown) {
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            if (status === 404 || status === 405) {
+                adminQuestionsAvailable = false;
+            } else {
+                throw err; // real error (incl. 400 "not started" on the admin route shouldn't happen)
+            }
+        }
+    }
+    return getContestQuestionsFull(contestId);
+};
+
+/**
  * Find a single contest by id. The backend has no `GET /contests/{id}`, so we
- * fetch the upcoming and past lists and locate it. This survives a hard refresh /
- * deep-link (we don't rely on navigation state). Returns null if not found.
+ * locate it in the admin list (which spans ALL classes/exams, so deep-linking a
+ * contest outside the admin's own scope still resolves). Falls back to the
+ * scoped lists automatically via listContestsForAdmin. Returns null if not found.
  */
 export const findContestById = async (contestId: string): Promise<Contest | null> => {
-    const [upcoming, past] = await Promise.all([
-        getContests("upcoming").catch(() => [] as Contest[]),
-        getContests("past").catch(() => [] as Contest[]),
-    ]);
-    return [...upcoming, ...past].find(c => c.id === contestId) ?? null;
+    const { contests } = await listContestsForAdmin({ type: "all", limit: 200 }).catch(
+        () => ({ contests: [] as Contest[], total: 0, skip: 0, limit: 0 }),
+    );
+    return contests.find(c => c.id === contestId) ?? null;
 };
 
 /** One row of a contest's leaderboard / ranking. Mirrors ContestRankingUserResponse. */
