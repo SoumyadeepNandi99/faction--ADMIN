@@ -16,6 +16,7 @@ import {
     Trash2,
     Eye,
     ImageIcon,
+    Sparkles,
 } from "lucide-react";
 import "katex/dist/katex.min.css";
 import Latex from "react-latex";
@@ -25,6 +26,7 @@ import { toast } from "sonner";
 import { getApiError } from "@/lib/utils";
 import { EXAM_TYPE_OPTIONS } from "@/lib/exam-types";
 import { QuestionPreviewModal } from "@/components/question/question-preview-modal";
+import { recentlyAddedRanks, recordRecentlyAdded } from "@/lib/potd-recent";
 
 interface ClassOption { id: string; name: string; }
 interface SubjectOption { id: string; subject_type: string; class_id: string; }
@@ -255,6 +257,12 @@ export default function PotdPage() {
             );
             setChecked(new Set());
 
+            // Remember questions we just ADDED so the Schedule tab floats them to
+            // the top. Keyed by the exam whose pool they joined.
+            if (eligible && selExam && succeeded.size > 0) {
+                recordRecentlyAdded(selExam, [...succeeded], Date.now());
+            }
+
             if (failed === 0) {
                 toast.success(
                     eligible
@@ -400,15 +408,36 @@ export default function PotdPage() {
         return { all: poolQuestions.length, served, never: poolQuestions.length - served };
     }, [poolQuestions]);
 
-    // The pool after the served filter. Questions already picked for this date are
-    // always kept visible (so a filtered-out pick can still be unpicked/reordered).
+    // Ranks of questions recently added to THIS exam's pool (0 = most recent),
+    // read from localStorage. Recomputed when the exam's pool (re)loads.
+    const recentRanks = useMemo(() => {
+        void poolQuestions; // re-read the store whenever the pool is refetched
+        return tab === "schedule" && selExam ? recentlyAddedRanks(selExam) : new Map<string, number>();
+    }, [tab, selExam, poolQuestions]);
+
+    // The pool after the served filter, ordered so recently-added questions come
+    // first (most recent first), then the rest in their original order. Questions
+    // already picked for this date stay visible under any filter (so a filtered-out
+    // pick can still be unpicked/reordered).
     const visiblePool = useMemo(() => {
-        if (servedFilter === "all") return poolQuestions;
-        return poolQuestions.filter((q) => {
-            if (schedPicked.includes(q.id)) return true;
-            return servedFilter === "served" ? !!q.qotd_served_date : !q.qotd_served_date;
-        });
-    }, [poolQuestions, servedFilter, schedPicked]);
+        const filtered =
+            servedFilter === "all"
+                ? poolQuestions
+                : poolQuestions.filter((q) => {
+                      if (schedPicked.includes(q.id)) return true;
+                      return servedFilter === "served" ? !!q.qotd_served_date : !q.qotd_served_date;
+                  });
+        if (recentRanks.size === 0) return filtered;
+        // Stable sort: recently-added (by rank) first, everything else keeps order.
+        return filtered
+            .map((q, i) => ({ q, i }))
+            .sort((a, b) => {
+                const ra = recentRanks.has(a.q.id) ? recentRanks.get(a.q.id)! : Infinity;
+                const rb = recentRanks.has(b.q.id) ? recentRanks.get(b.q.id)! : Infinity;
+                return ra !== rb ? ra - rb : a.i - b.i;
+            })
+            .map((x) => x.q);
+    }, [poolQuestions, servedFilter, schedPicked, recentRanks]);
 
     return (
         <div className="flex flex-col gap-6">
@@ -856,6 +885,11 @@ export default function PotdPage() {
                                                     className="flex-1 min-w-0 cursor-pointer"
                                                 >
                                                     <div className="flex flex-wrap gap-2 items-center mb-2">
+                                                        {recentRanks.has(q.id) && (
+                                                            <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/20">
+                                                                <Sparkles className="h-3 w-3" /> Recently added
+                                                            </span>
+                                                        )}
                                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${diffColor(q.difficulty)}`}>
                                                             {getDifficultyLabel(q.difficulty)}
                                                         </span>
