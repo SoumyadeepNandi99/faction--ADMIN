@@ -763,6 +763,9 @@ export interface MonetizationSummary {
     platform_users: number; // students with any session at all (the denominator)
     app_pct: number | null;
     web_pct: number | null;
+    // Churn PROXY (not a confirmed uninstall — the app can't report its own removal).
+    lost_reachability: number; // had a push token, no longer have an active push-enabled session
+    lapsed_14d: number; // no active session and no activity in 14+ days
 }
 
 export async function getMonetizationSummary(f: AnalyticsFilters): Promise<MonetizationSummary> {
@@ -804,13 +807,19 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
     const pScopeAnd = pScope.sql ? `AND ${pScope.sql}` : "";
     const push = await readonlyQueryOne<{
         reachable: string; total_students: string; app_users: string; web_users: string; platform_users: string;
+        lost_reachability: string; lapsed_14d: string;
     }>(
         `WITH scoped AS (SELECT u.id FROM users u WHERE ${STUDENTS} ${pScopeAnd}),
          sess AS (
            SELECT us.user_id,
              bool_or(us.push_token IS NOT NULL AND us.push_token <> '') AS has_push,
              bool_or(us.user_agent ILIKE 'okhttp%') AS uses_app,
-             bool_or(us.user_agent ILIKE '%mozilla%') AS uses_web
+             bool_or(us.user_agent ILIKE '%mozilla%') AS uses_web,
+             -- churn-proxy signals
+             bool_or(us.push_token IS NOT NULL AND us.push_token <> '') AS ever_had_push,
+             bool_or(us.push_token IS NOT NULL AND us.push_token <> '' AND us.is_active) AS has_active_push,
+             bool_or(us.is_active) AS has_active_session,
+             max(us.last_active) AS last_active
            FROM user_sessions us JOIN scoped s ON s.id = us.user_id
            GROUP BY us.user_id
          )
@@ -819,7 +828,9 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
            (SELECT count(*) FROM scoped) AS total_students,
            (SELECT count(*) FROM sess WHERE uses_app) AS app_users,
            (SELECT count(*) FROM sess WHERE uses_web) AS web_users,
-           (SELECT count(*) FROM sess) AS platform_users`,
+           (SELECT count(*) FROM sess) AS platform_users,
+           (SELECT count(*) FROM sess WHERE ever_had_push AND NOT has_active_push) AS lost_reachability,
+           (SELECT count(*) FROM sess WHERE NOT has_active_session AND last_active < now() - interval '14 days') AS lapsed_14d`,
         pScope.params,
     );
 
@@ -841,6 +852,8 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
         platform_users: platformUsers,
         app_pct: platformUsers > 0 ? round1((100 * appUsers) / platformUsers) : null,
         web_pct: platformUsers > 0 ? round1((100 * webUsers) / platformUsers) : null,
+        lost_reachability: num(push?.lost_reachability),
+        lapsed_14d: num(push?.lapsed_14d),
     };
 }
 

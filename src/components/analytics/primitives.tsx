@@ -7,69 +7,73 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Info, Search } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Info, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sparkline } from "./charts";
 
 // ---------------------------------------------------------------------------
-// InfoTip — a small "i" button that explains a metric. Opens on hover AND on
-// click/tap (click keeps it open so it's readable on touch and by keyboard).
-// The text says what the metric is and why it is useful.
+// InfoTip — a small "i" button that explains a metric. Clicking opens a centered
+// modal (portaled to <body>) so the full text is never clipped by a card's
+// overflow or the viewport edge. Closes on backdrop click, the X, or Escape.
 // ---------------------------------------------------------------------------
-export function InfoTip({ text, className }: { text: string; className?: string }) {
+export function InfoTip({ text, title, className }: { text: string; title?: string; className?: string }) {
     const [open, setOpen] = useState(false);
-    const [pinned, setPinned] = useState(false); // clicked-open stays until dismissed
-    const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!pinned) return;
-        const onDoc = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) {
-                setPinned(false);
-                setOpen(false);
-            }
-        };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                setPinned(false);
-                setOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", onDoc);
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
         document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("mousedown", onDoc);
-            document.removeEventListener("keydown", onKey);
-        };
-    }, [pinned]);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [open]);
 
-    const show = open || pinned;
     return (
-        <div ref={ref} className={cn("relative shrink-0", className)}>
+        <span className={cn("inline-flex shrink-0", className)}>
             <button
                 type="button"
-                aria-label="What is this metric?"
-                onMouseEnter={() => setOpen(true)}
-                onMouseLeave={() => setOpen(false)}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setOpen(false)}
+                aria-label={title ? `About ${title}` : "What is this metric?"}
                 onClick={e => {
                     e.stopPropagation();
-                    setPinned(p => !p);
+                    setOpen(true);
                 }}
-                className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/70 hover:text-brand-500 hover:bg-foreground/5 transition-colors cursor-help"
+                className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/70 hover:text-brand-500 hover:bg-foreground/5 transition-colors cursor-pointer"
             >
                 <Info className="h-3.5 w-3.5" />
             </button>
-            {show && (
-                <div
-                    role="tooltip"
-                    className="absolute right-0 top-6 z-30 w-60 rounded-xl border border-(--card-border) bg-background/98 p-3 text-xs leading-relaxed text-muted-foreground shadow-xl backdrop-blur-sm"
-                >
-                    {text}
-                </div>
-            )}
-        </div>
+            {open && typeof document !== "undefined" &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[70] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+                        onClick={() => setOpen(false)}
+                    >
+                        <div
+                            role="dialog"
+                            aria-modal="true"
+                            className="w-full max-w-sm rounded-2xl border border-(--card-border) bg-background p-5 shadow-2xl"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-start justify-between gap-3 mb-2">
+                                <div className="flex items-center gap-2 text-foreground">
+                                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-500/10 text-brand-500 border border-brand-500/20">
+                                        <Info className="h-4 w-4" />
+                                    </span>
+                                    {title && <h4 className="font-semibold leading-tight">{title}</h4>}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen(false)}
+                                    aria-label="Close"
+                                    className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors cursor-pointer"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+                            <p className="text-sm leading-relaxed text-muted-foreground">{text}</p>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
+        </span>
     );
 }
 
@@ -110,7 +114,7 @@ export function KpiCard({
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-muted-foreground font-medium text-sm truncate">{label}</span>
-                        {info && <InfoTip text={info} />}
+                        {info && <InfoTip text={info} title={label} />}
                     </div>
                     {icon && <div className="p-2 bg-foreground/5 rounded-lg border border-(--card-border) opacity-50 shrink-0">{icon}</div>}
                 </div>
@@ -125,7 +129,7 @@ export function KpiCard({
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-muted-foreground font-medium text-sm truncate">{label}</span>
-                    {info && <InfoTip text={info} />}
+                    {info && <InfoTip text={info} title={label} />}
                 </div>
                 {icon && <div className={cn("p-2 bg-foreground/5 rounded-lg border border-(--card-border) shrink-0", accentColor)}>{icon}</div>}
             </div>
@@ -200,7 +204,7 @@ export function Card({
                     <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                             {title && <h3 className="font-semibold text-foreground">{title}</h3>}
-                            {info && <InfoTip text={info} />}
+                            {info && <InfoTip text={info} title={title} />}
                         </div>
                         {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
                     </div>

@@ -657,7 +657,7 @@ function HeadlineBanner({
                 <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-                        {info && <InfoTip text={info} />}
+                        {info && <InfoTip text={info} title={label} />}
                     </div>
                     {loading ? (
                         <Skeleton className="mt-1 h-11 w-40 rounded" />
@@ -742,6 +742,25 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                         </div>
                     ) : (
                         <EmptyState message="No notification data in range." />
+                    )}
+                </Card>
+                <Card title="Likely Churned" subtitle="Proxy for uninstalls (not confirmed)" info={EXPLAIN.likelyChurned}>
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : s ? (
+                        <div className="flex flex-col gap-4 pt-1">
+                            <div className="grid grid-cols-2 gap-4">
+                                <Stat label="Lost app reachability" value={s.lost_reachability} hint="had push, now unreachable" />
+                                <Stat label="Not seen 14+ days" value={s.lapsed_14d} hint="no active session" />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground/80 leading-snug">
+                                A true uninstall can&apos;t be detected (the app can&apos;t report its own removal). These are early-warning proxies, not exact uninstalls.
+                            </p>
+                        </div>
+                    ) : (
+                        <EmptyState message="No session data to estimate churn from." />
                     )}
                 </Card>
             </div>
