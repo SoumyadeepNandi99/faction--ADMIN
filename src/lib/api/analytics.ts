@@ -199,6 +199,8 @@ export interface MonetizationData {
         free: number; premium: number; premium_pct: number | null;
         notif_total: number; notif_read: number; notif_read_pct: number | null;
         push_reachable_users: number; total_students: number; push_reach_pct: number | null;
+        app_users: number; web_users: number; platform_users: number;
+        app_pct: number | null; web_pct: number | null;
     };
 }
 
