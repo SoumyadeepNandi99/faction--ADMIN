@@ -471,7 +471,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
     const trend = useMemo(() => data?.trend ?? [], [data]);
     const trendLabels = useMemo(() => trend.map(p => p.day.slice(5)), [trend]);
     const cumulativeSeries = useMemo(() => trend.map(p => p.cumulative), [trend]);
-    const dailyBars = useMemo(() => trend.map(p => ({ label: p.day.slice(5), count: p.solved })), [trend]);
+    const dailySeries = useMemo(() => trend.map(p => p.solved), [trend]);
 
     return (
         <Section
@@ -530,7 +530,7 @@ export function LearningOutcomesSection({ filters }: { filters: Filters }) {
                     trendMode === "cumulative" ? (
                         <AreaChart points={cumulativeSeries} labels={trendLabels} height={240} valueLabel="total solved" />
                     ) : (
-                        <BarChart data={dailyBars} height={240} labelEvery={Math.max(1, Math.ceil(dailyBars.length / 12))} />
+                        <AreaChart points={dailySeries} labels={trendLabels} height={240} valueLabel="solved that day" color="var(--color-accent-blue)" />
                     )
                 ) : trend.length === 1 ? (
                     <EmptyState message="Only one day of solving activity so far — the trend line appears once there are at least two days." />
