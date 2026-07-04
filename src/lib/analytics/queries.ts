@@ -117,7 +117,7 @@ export async function getActiveSolversSeries(f: AnalyticsFilters): Promise<DayPo
     const range = dayRangePredicate(dayExpr, f, scope.params.length + 1);
     const rangeAnd = range.sql ? `AND ${range.sql}` : "";
     const rows = await readonlyQuery<{ day: string; value: string }>(
-        `SELECT ${dayExpr} AS day, count(DISTINCT a.user_id) AS value
+        `SELECT to_char(${dayExpr}, 'YYYY-MM-DD') AS day, count(DISTINCT a.user_id) AS value
          FROM question_attempts a JOIN users u ON u.id = a.user_id
          WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
          GROUP BY 1 ORDER BY 1`,
@@ -134,7 +134,7 @@ export async function getSignupSeries(f: AnalyticsFilters): Promise<DayPoint[]> 
     const range = dayRangePredicate(dayExpr, f, scope.params.length + 1);
     const rangeAnd = range.sql ? `AND ${range.sql}` : "";
     const rows = await readonlyQuery<{ day: string; value: string }>(
-        `SELECT ${dayExpr} AS day, count(*) AS value
+        `SELECT to_char(${dayExpr}, 'YYYY-MM-DD') AS day, count(*) AS value
          FROM users u
          WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
          GROUP BY 1 ORDER BY 1`,
@@ -211,7 +211,7 @@ export async function getRetentionCohorts(f: AnalyticsFilters): Promise<CohortRo
            SELECT DISTINCT a.user_id, ((a.attempted_at + ${IST_SHIFT})::date) AS d
            FROM question_attempts a
          )
-         SELECT date_trunc('week', signup)::date AS cohort_week,
+         SELECT to_char(date_trunc('week', signup)::date, 'YYYY-MM-DD') AS cohort_week,
            count(DISTINCT c.id) AS size,
            count(DISTINCT c.id) FILTER (WHERE a.d = c.signup + 1) AS d1,
            count(DISTINCT c.id) FILTER (WHERE a.d = c.signup + 7) AS d7,
@@ -678,7 +678,7 @@ export async function getSolvedTrend(f: AnalyticsFilters): Promise<TrendPoint[]>
            FROM bounds, generate_series(bounds.lo, bounds.hi, interval '1 day') AS gs
            WHERE bounds.lo IS NOT NULL
          )
-         SELECT cal.d AS day,
+         SELECT to_char(cal.d, 'YYYY-MM-DD') AS day,
            coalesce(daily.solved, 0) AS solved,
            sum(coalesce(daily.solved, 0)) OVER (ORDER BY cal.d) AS cumulative
          FROM cal LEFT JOIN daily ON daily.d = cal.d
