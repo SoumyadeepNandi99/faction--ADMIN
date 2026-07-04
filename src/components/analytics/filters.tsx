@@ -34,7 +34,7 @@ export function FilterBar({
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Filter className="h-4 w-4 text-brand-500" />
                 Filters
-                <span className="text-xs font-normal text-muted-foreground">— applied in SQL (IST)</span>
+                <span className="text-xs font-normal text-muted-foreground">applied in SQL (IST)</span>
                 {active && (
                     <button
                         onClick={() => onChange({ from: "", to: "", classId: "", examTypes: [], subscriptionType: "" })}
