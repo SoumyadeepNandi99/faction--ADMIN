@@ -858,6 +858,30 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
 }
 
 // ===========================================================================
+// Users tab — last-active timestamp per user.
+// ===========================================================================
+
+export interface LastActiveRow { user_id: string; last_active: string | null; }
+
+/**
+ * Best-effort "last active" timestamp per user: the greater of their most recent
+ * session heartbeat (user_sessions.last_active) and their most recent question
+ * attempt. Covers all users; null only when a user has neither. Used to add a
+ * truthful "Last Active" column to the Users table (the REST users endpoint
+ * exposes only created_at/updated_at). Read-only.
+ */
+export async function getLastActiveMap(): Promise<LastActiveRow[]> {
+    return readonlyQuery<LastActiveRow>(
+        `SELECT u.id AS user_id,
+            GREATEST(
+              (SELECT max(us.last_active) FROM user_sessions us WHERE us.user_id = u.id),
+              (SELECT max(qa.attempted_at) FROM question_attempts qa WHERE qa.user_id = u.id)
+            ) AS last_active
+         FROM users u`,
+    );
+}
+
+// ===========================================================================
 // Filter option sources (classes) for the segmentation UI.
 // ===========================================================================
 

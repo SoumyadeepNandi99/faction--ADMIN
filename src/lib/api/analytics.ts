@@ -121,6 +121,26 @@ export async function resolveSegment(key: string): Promise<ResolvedSegment> {
     return getSegmentsJson<ResolvedSegment>(`?segment=${encodeURIComponent(key)}`);
 }
 
+/**
+ * Fetch a { userId: lastActiveISO|null } map for the Users table's "Last Active"
+ * column. Read-only, admin-gated. Throws AnalyticsFetchError on failure so the
+ * caller can degrade to "—".
+ */
+export async function fetchLastActiveMap(): Promise<Record<string, string | null>> {
+    const res = await fetch(`/api/analytics/last-active`, { headers: { ...authHeader() }, cache: "no-store" });
+    let body: unknown = null;
+    try {
+        body = await res.json();
+    } catch {
+        /* non-JSON */
+    }
+    if (!res.ok) {
+        const err = body as { error?: string; detail?: string } | null;
+        throw new AnalyticsFetchError(err?.error ?? "http_error", err?.detail ?? res.statusText, res.status);
+    }
+    return (body as { lastActive: Record<string, string | null> }).lastActive ?? {};
+}
+
 // ---------------------------------------------------------------------------
 // Response shapes (mirror the server return types in queries.ts)
 // ---------------------------------------------------------------------------
