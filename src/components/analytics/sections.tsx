@@ -124,7 +124,17 @@ export function EngagementSection({ filters }: { filters: Filters }) {
     const solversSeries = useMemo(() => data?.solvers.map(p => p.value) ?? [], [data]);
     const solversLabels = useMemo(() => data?.solvers.map(p => p.day.slice(5)) ?? [], [data]);
     const signupsBars = useMemo(() => data?.signups.map(p => ({ label: p.day.slice(5), count: p.value })) ?? [], [data]);
+    const signupsLabels = useMemo(() => data?.signups.map(p => p.day.slice(5)) ?? [], [data]);
+    // Running total of new signups per day, for the cumulative (growth) line.
+    // Each point is the sum of all values up to and including its index (pure,
+    // no render-scope accumulator to reassign).
+    const signupsCumulative = useMemo(() => {
+        const vals = (data?.signups ?? []).map(p => p.value);
+        return vals.map((_, i) => vals.slice(0, i + 1).reduce((a, b) => a + b, 0));
+    }, [data]);
     const dauSpark = useMemo(() => solversSeries.slice(-14), [solversSeries]);
+    // New Signups card view: cumulative growth line vs per-day bars.
+    const [signupsMode, setSignupsMode] = useState<"cumulative" | "daily">("daily");
 
     return (
         <Section
@@ -209,13 +219,36 @@ export function EngagementSection({ filters }: { filters: Filters }) {
                         <EmptyState message="Not enough activity history to plot a trend yet." />
                     )}
                 </Card>
-                <Card title="New Signups / Day" info={EXPLAIN.signupsChart}>
+                <Card
+                    title="New Signups"
+                    info={EXPLAIN.signupsChart}
+                    subtitle={signupsMode === "cumulative" ? "Cumulative students (growth)" : "New signups per day (IST)"}
+                    right={
+                        <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
+                            {(["cumulative", "daily"] as const).map(m => (
+                                <button
+                                    key={m}
+                                    onClick={() => setSignupsMode(m)}
+                                    className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
+                                        signupsMode === m ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                >
+                                    {m}
+                                </button>
+                            ))}
+                        </div>
+                    }
+                >
                     {loading ? (
                         <ChartSkeleton />
                     ) : error ? (
                         <ErrorState {...errParts(error)} />
                     ) : signupsBars.length >= 2 ? (
-                        <BarChart data={signupsBars} color="var(--color-accent-blue)" labelEvery={Math.max(1, Math.ceil(signupsBars.length / 12))} />
+                        signupsMode === "cumulative" ? (
+                            <AreaChart points={signupsCumulative} labels={signupsLabels} valueLabel="total students" />
+                        ) : (
+                            <BarChart data={signupsBars} color="var(--color-accent-blue)" labelEvery={Math.max(1, Math.ceil(signupsBars.length / 12))} />
+                        )
                     ) : (
                         <EmptyState message="Not enough signup history to plot." />
                     )}
