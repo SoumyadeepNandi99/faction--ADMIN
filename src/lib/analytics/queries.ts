@@ -757,6 +757,12 @@ export interface MonetizationSummary {
     push_reachable_users: number;
     total_students: number;
     push_reach_pct: number | null;
+    // Platform reach (a student can use both, so app + web can exceed the total).
+    app_users: number; // used the native app (okhttp user-agent)
+    web_users: number; // used a browser (Mozilla user-agent)
+    platform_users: number; // students with any session at all (the denominator)
+    app_pct: number | null;
+    web_pct: number | null;
 }
 
 export async function getMonetizationSummary(f: AnalyticsFilters): Promise<MonetizationSummary> {
@@ -790,21 +796,37 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
         [...nScope.params, ...nRange.params],
     );
 
+    // Push reachability + platform (app/web) reach, all from user_sessions.
+    // Platform is derived from the session's user_agent: the native app's HTTP
+    // client sends "okhttp/…"; browsers send a "Mozilla/…" UA. A student can
+    // have both kinds of session, so app + web can exceed the session-user total.
     const pScope = userScope(f, 1);
     const pScopeAnd = pScope.sql ? `AND ${pScope.sql}` : "";
-    const push = await readonlyQueryOne<{ reachable: string; total_students: string }>(
-        `WITH scoped AS (SELECT u.id FROM users u WHERE ${STUDENTS} ${pScopeAnd})
+    const push = await readonlyQueryOne<{
+        reachable: string; total_students: string; app_users: string; web_users: string; platform_users: string;
+    }>(
+        `WITH scoped AS (SELECT u.id FROM users u WHERE ${STUDENTS} ${pScopeAnd}),
+         sess AS (
+           SELECT us.user_id,
+             bool_or(us.push_token IS NOT NULL AND us.push_token <> '') AS has_push,
+             bool_or(us.user_agent ILIKE 'okhttp%') AS uses_app,
+             bool_or(us.user_agent ILIKE '%mozilla%') AS uses_web
+           FROM user_sessions us JOIN scoped s ON s.id = us.user_id
+           GROUP BY us.user_id
+         )
          SELECT
-           (SELECT count(DISTINCT us.user_id) FROM user_sessions us
-              JOIN scoped s ON s.id = us.user_id
-             WHERE us.push_token IS NOT NULL AND us.push_token <> '') AS reachable,
-           (SELECT count(*) FROM scoped) AS total_students`,
+           (SELECT count(*) FROM sess WHERE has_push) AS reachable,
+           (SELECT count(*) FROM scoped) AS total_students,
+           (SELECT count(*) FROM sess WHERE uses_app) AS app_users,
+           (SELECT count(*) FROM sess WHERE uses_web) AS web_users,
+           (SELECT count(*) FROM sess) AS platform_users`,
         pScope.params,
     );
 
     const free = num(mix?.free), premium = num(mix?.premium), total = num(mix?.total);
     const nTotal = num(notif?.total), nRead = num(notif?.read);
     const reachable = num(push?.reachable), totalStudents = num(push?.total_students);
+    const appUsers = num(push?.app_users), webUsers = num(push?.web_users), platformUsers = num(push?.platform_users);
     return {
         free, premium,
         premium_pct: total > 0 ? round1((100 * premium) / total) : null,
@@ -814,6 +836,11 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
         push_reachable_users: reachable,
         total_students: totalStudents,
         push_reach_pct: totalStudents > 0 ? round1((100 * reachable) / totalStudents) : null,
+        app_users: appUsers,
+        web_users: webUsers,
+        platform_users: platformUsers,
+        app_pct: platformUsers > 0 ? round1((100 * appUsers) / platformUsers) : null,
+        web_pct: platformUsers > 0 ? round1((100 * webUsers) / platformUsers) : null,
     };
 }
 

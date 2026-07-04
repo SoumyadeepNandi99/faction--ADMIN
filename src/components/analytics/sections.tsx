@@ -16,11 +16,13 @@ import {
     CheckCircle2,
     CreditCard,
     Flame,
+    Globe,
     GraduationCap,
     Layers,
     MessageSquare,
     Repeat,
     Rocket,
+    Smartphone,
     Star,
     Swords,
     TrendingUp,
@@ -696,7 +698,7 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                 <KpiCard label="Total Notifications" value={kpi(s?.notif_total)} accent="pink" icon={<MessageSquare className="h-5 w-5" />} sub="in selected range" info={EXPLAIN.totalNotifications} />
             </KpiStrip>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <Card title="Free vs Premium" subtitle="Subscription mix of the student base" info={EXPLAIN.freeVsPremium}>
                     {loading ? (
                         <ChartSkeleton height={160} />
@@ -706,6 +708,23 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                         <DonutChart data={mix} />
                     ) : (
                         <EmptyState message="No students match the current filters." />
+                    )}
+                </Card>
+                <Card title="App vs Web" subtitle="Students reached on each platform" info={EXPLAIN.appVsWeb}>
+                    {loading ? (
+                        <ChartSkeleton height={160} />
+                    ) : error ? (
+                        <ErrorState {...errParts(error)} />
+                    ) : s && s.platform_users > 0 ? (
+                        <div className="flex flex-col gap-5 pt-2">
+                            <PlatformBar icon={<Smartphone className="h-4 w-4" />} label="Mobile app" users={s.app_users} pctVal={s.app_pct} color="var(--color-brand-500)" />
+                            <PlatformBar icon={<Globe className="h-4 w-4" />} label="Web browser" users={s.web_users} pctVal={s.web_pct} color="var(--color-accent-blue)" />
+                            <p className="text-[11px] text-muted-foreground/80">
+                                {n(s.platform_users)} students with a login session. A student who uses both counts in both, so the two can exceed 100%.
+                            </p>
+                        </div>
+                    ) : (
+                        <EmptyState message="No login sessions to derive platform usage from." />
                     )}
                 </Card>
                 <Card title="Notification Engagement" subtitle="Read rate & push reachability" info={EXPLAIN.notifEngagement}>
@@ -727,6 +746,22 @@ export function MonetizationSection({ filters }: { filters: Filters }) {
                 </Card>
             </div>
         </Section>
+    );
+}
+
+function PlatformBar({ icon, label, users, pctVal, color }: { icon: React.ReactNode; label: string; users: number; pctVal: number | null; color: string }) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5 text-muted-foreground">{icon}{label}</span>
+                <span className="font-semibold text-foreground tabular-nums">
+                    {users.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">({pct(pctVal)})</span>
+                </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/10">
+                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pctVal ?? 0)}%`, background: color }} />
+            </div>
+        </div>
     );
 }
 

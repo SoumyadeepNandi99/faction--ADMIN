@@ -63,4 +63,5 @@ export const EXPLAIN = {
     totalNotifications: "The total number of notifications sent to students in the selected range.",
     freeVsPremium: "The split of the student base between free and premium plans.",
     notifEngagement: "How notifications are performing: the read rate (attention earned) and push reachability (how many devices can be reached at all).",
+    appVsWeb: "How many students reach the platform through the mobile app versus the web browser, based on their login sessions. A student who uses both is counted in both, so the two numbers can add up to more than the total. Useful for deciding where to invest and for reading feature reach by platform.",
 } as const;
