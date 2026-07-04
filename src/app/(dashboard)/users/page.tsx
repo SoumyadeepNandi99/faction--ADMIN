@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { confirmAction } from "@/components/ui/confirm-modal";
 import { formatDate } from "@/lib/datetime";
+import { fetchLastActiveMap } from "@/lib/api/analytics";
 
 interface User {
     id: string;
@@ -73,6 +74,13 @@ export default function UsersPage() {
         { revalidateOnMount: true, revalidateIfStale: true }
     );
     const { data: classesData } = useSWR("/api/v1/class/");
+    // Last-active timestamps (real activity, from the analytics DB). Fetched once
+    // and merged into the table by user id; degrades to "—" if unavailable.
+    const { data: lastActiveMap } = useSWR("users:last-active", fetchLastActiveMap, {
+        revalidateOnFocus: false,
+        dedupingInterval: 120_000,
+        shouldRetryOnError: false,
+    });
 
     const rawUsers: User[] = extractUsers(usersData);
     const hasNextPage = rawUsers.length > PAGE_SIZE;
@@ -184,13 +192,14 @@ export default function UsersPage() {
                                     <th scope="col" className="px-6 py-4">Batch / Exams</th>
                                     <th scope="col" className="px-6 py-4">Status</th>
                                     <th scope="col" className="px-6 py-4">Joined</th>
+                                    <th scope="col" className="px-6 py-4">Last Active</th>
                                     <th scope="col" className="px-6 py-4 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={8}>
+                                        <td colSpan={9}>
                                             <div className="p-4 space-y-4">
                                                 {[1, 2, 3, 4, 5].map((i) => (
                                                     <div key={i} className="flex items-center justify-between p-4 border rounded-xl border-(--card-border)">
@@ -210,7 +219,7 @@ export default function UsersPage() {
                                     </tr>
                                 ) : error ? (
                                     <tr>
-                                        <td colSpan={8}>
+                                        <td colSpan={9}>
                                             <div className="p-12 text-center flex flex-col items-center gap-3">
                                                 <RefreshCw className="h-8 w-8 text-destructive/50" />
                                                 <h3 className="text-lg font-bold text-foreground">Failed to Load Users</h3>
@@ -224,7 +233,7 @@ export default function UsersPage() {
                                     </tr>
                                 ) : filteredUsers.length === 0 ? (
                                     <tr className="border-t border-(--border)">
-                                        <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground">
                                             No users found matching your search.
                                         </td>
                                     </tr>
@@ -289,6 +298,11 @@ export default function UsersPage() {
                                             </td>
                                             <td className="px-6 py-4">
                                                 {formatDate(user.created_at)}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {lastActiveMap && lastActiveMap[user.id]
+                                                    ? formatDate(lastActiveMap[user.id])
+                                                    : "—"}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <button
