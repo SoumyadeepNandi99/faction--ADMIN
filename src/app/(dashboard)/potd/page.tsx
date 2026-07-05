@@ -820,6 +820,29 @@ export default function PotdPage() {
                                 </div>
                             </div>
 
+                            {/* Primary actions kept at the TOP so they're reachable without
+                                scrolling past the (long) question list. */}
+                            <div className="flex flex-wrap items-center gap-3">
+                                <button
+                                    onClick={saveSchedule}
+                                    disabled={savingSched || schedPicked.length === 0}
+                                    className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                    {savingSched ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
+                                    {existingSchedId ? "Update schedule" : "Schedule POTD"}
+                                </button>
+                                {existingSchedId && (
+                                    <button
+                                        onClick={deleteSchedule}
+                                        disabled={savingSched}
+                                        className="flex items-center gap-2 border border-(--card-border) hover:bg-foreground/5 text-foreground px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                                    >
+                                        <Trash2 className="h-4 w-4" /> Clear this day
+                                    </button>
+                                )}
+                                <span className="text-xs text-muted-foreground">{schedPicked.length} question{schedPicked.length !== 1 ? "s" : ""} selected</span>
+                            </div>
+
                             {/* Served / never-served filter for the eligible pool. */}
                             {poolQuestions.length > 0 && (
                                 <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs w-fit">
@@ -968,25 +991,6 @@ export default function PotdPage() {
                                 </div>
                             )}
 
-                            <div className="flex flex-wrap items-center gap-3 border-t border-(--panel-border) pt-3">
-                                <button
-                                    onClick={saveSchedule}
-                                    disabled={savingSched || schedPicked.length === 0}
-                                    className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                    {savingSched ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
-                                    {existingSchedId ? "Update schedule" : "Schedule POTD"}
-                                </button>
-                                {existingSchedId && (
-                                    <button
-                                        onClick={deleteSchedule}
-                                        disabled={savingSched}
-                                        className="flex items-center gap-2 border border-(--card-border) hover:bg-foreground/5 text-foreground px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
-                                    >
-                                        <Trash2 className="h-4 w-4" /> Clear this day
-                                    </button>
-                                )}
-                            </div>
                         </>
                     )}
                 </div>
