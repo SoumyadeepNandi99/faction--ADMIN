@@ -309,23 +309,39 @@ export default function PotdPage() {
         }
         let cancelled = false;
         setLoadingPool(true);
-        // The eligible pool is exam-scoped. Filter by exam SERVER-side: otherwise
-        // the limit was consumed by the (large) JEE_MAINS pool and other exams'
-        // questions fell outside the window, so freshly-added questions never
-        // appeared in the picker. Raised limit covers a full per-exam pool.
-        apiClient
-            .get(`/api/v1/questions/?is_qotd_eligible=true&exam_type=${encodeURIComponent(selExam)}&limit=500`)
-            .then((r) => {
-                if (cancelled) return;
-                const all = (r.data?.questions || []) as Question[];
-                setPoolQuestions(all);
-            })
-            .catch(() => {
-                if (!cancelled) setPoolQuestions([]);
-            })
-            .finally(() => {
-                if (!cancelled) setLoadingPool(false);
-            });
+        // The eligible pool is exam-scoped. It can be LARGE (e.g. JEE_MAINS spans
+        // both classes), so a single capped request dropped freshly-added
+        // questions that sorted past the cap — they never appeared in the picker.
+        // Page through the FULL eligible pool (skip/limit) so every eligible
+        // question is loaded regardless of size, then de-dupe by id.
+        const PAGE = 200;
+        const MAX_PAGES = 100; // safety bound: up to 20k questions
+        (async () => {
+            const acc: Question[] = [];
+            const seen = new Set<string>();
+            for (let page = 0; page < MAX_PAGES; page++) {
+                let rows: Question[];
+                let total = NaN;
+                try {
+                    const { data } = await apiClient.get(
+                        `/api/v1/questions/?is_qotd_eligible=true&exam_type=${encodeURIComponent(selExam)}&skip=${page * PAGE}&limit=${PAGE}`,
+                    );
+                    if (cancelled) return;
+                    rows = (data?.questions || []) as Question[];
+                    total = Number(data?.total);
+                } catch (err) {
+                    // A 404 past the last page just means "no more" — keep what we have.
+                    // Any other error on the first page means the pool truly failed.
+                    if ((err as { response?: { status?: number } })?.response?.status === 404) break;
+                    if (page === 0) { if (!cancelled) { setPoolQuestions([]); setLoadingPool(false); } return; }
+                    break;
+                }
+                for (const q of rows) if (!seen.has(q.id)) { seen.add(q.id); acc.push(q); }
+                if (rows.length < PAGE) break;
+                if (Number.isFinite(total) && acc.length >= total) break;
+            }
+            if (!cancelled) { setPoolQuestions(acc); setLoadingPool(false); }
+        })();
         return () => {
             cancelled = true;
         };
