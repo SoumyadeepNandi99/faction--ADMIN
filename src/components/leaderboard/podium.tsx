@@ -8,7 +8,7 @@
  * styles live in `globals.css`.
  */
 
-import { Crown, Medal, Award } from "lucide-react";
+import { Crown, Medal, Award, Trophy } from "lucide-react";
 
 /** Per-place styling for the podium (1st = gold, 2nd = silver, 3rd = bronze). */
 const PLACE = {
@@ -55,7 +55,22 @@ function Avatar({ name, url, size, ring }: { name: string | null; url?: string |
     );
 }
 
-export function Podium({ top3, unit }: { top3: PodiumEntry[]; unit?: string }) {
+export function Podium({
+    top3,
+    unit,
+    title = "Top Ranked",
+    subtitle,
+    showTrophy = false,
+}: {
+    top3: PodiumEntry[];
+    unit?: string;
+    /** Small uppercase label above the pedestals (default "Top Ranked"). */
+    title?: string;
+    /** Optional line under the title, e.g. the selected date range. */
+    subtitle?: string;
+    /** Render a large trophy graphic inside the podium box. */
+    showTrophy?: boolean;
+}) {
     // Render order [2nd, 1st, 3rd] so 1st sits centered and tallest.
     const order: Array<{ e: PodiumEntry; place: 1 | 2 | 3 } | null> = [
         top3[1] ? { e: top3[1], place: 2 } : null,
@@ -72,11 +87,31 @@ export function Podium({ top3, unit }: { top3: PodiumEntry[]; unit?: string }) {
                 style={{ background: "radial-gradient(closest-side, var(--accent-soft), transparent 70%)" }}
             />
 
-            {/* Section label */}
-            <div className="relative mb-6 flex items-center justify-center gap-2">
-                <span className="h-px w-8 bg-linear-to-r from-transparent to-white/40" />
-                <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-white/70">Top Ranked</span>
-                <span className="h-px w-8 bg-linear-to-l from-transparent to-white/40" />
+            {/* Trophy graphic inside the box */}
+            {showTrophy && (
+                <div className="relative mb-3 flex justify-center">
+                    <div className="relative">
+                        <span
+                            className="absolute -inset-3 rounded-full opacity-70 blur-xl"
+                            style={{ background: "rgba(255,213,74,0.45)" }}
+                        />
+                        <Trophy
+                            className="relative h-12 w-12"
+                            style={{ color: "#FFD54A", filter: "drop-shadow(0 0 14px rgba(255,213,74,0.6))" }}
+                            fill="#FFD54A"
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Section label (+ optional date subtitle) */}
+            <div className="relative mb-6 flex flex-col items-center gap-1.5">
+                <div className="flex items-center justify-center gap-2">
+                    <span className="h-px w-8 bg-linear-to-r from-transparent to-white/40" />
+                    <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-white/70">{title}</span>
+                    <span className="h-px w-8 bg-linear-to-l from-transparent to-white/40" />
+                </div>
+                {subtitle && <span className="text-[11px] font-medium text-white/50">{subtitle}</span>}
             </div>
 
             {/* Pedestals */}
