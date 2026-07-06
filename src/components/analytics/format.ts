@@ -22,3 +22,13 @@ export function humanHours(h: number | null | undefined): string {
     if (h < 48) return `${h.toFixed(1)} h`;
     return `${(h / 24).toFixed(1)} d`;
 }
+
+/** Seconds → a compact duration ("0m", "12m", "1h 05m", "3h"). */
+export function humanDuration(sec: number | null | undefined): string {
+    if (sec == null || sec <= 0) return "0m";
+    const h = Math.floor(sec / 3600);
+    const m = Math.round((sec % 3600) / 60);
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${String(m).padStart(2, "0")}m`;
+}

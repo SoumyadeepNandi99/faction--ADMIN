@@ -1,6 +1,6 @@
 import "server-only";
 import { readonlyQuery, readonlyQueryOne } from "@/lib/db";
-import { AnalyticsFilters, IST_SHIFT, dayRangePredicate, userScope } from "./filters";
+import { AnalyticsFilters, IST_MINUTES, IST_SHIFT, dayRangePredicate, userScope } from "./filters";
 
 /**
  * Founder-analytics SQL, grouped by dashboard section. Every function is a
@@ -17,6 +17,23 @@ import { AnalyticsFilters, IST_SHIFT, dayRangePredicate, userScope } from "./fil
 
 // Only STUDENT rows count as "users" for product metrics; ADMINs are staff.
 const STUDENTS = `u.role = 'STUDENT'`;
+
+/** "YYYY-MM-DD" for the IST day that is `daysAgo` days before today (IST). */
+function istDayKey(daysAgo: number): string {
+    const nowIstMs = Date.now() + IST_MINUTES * 60_000;
+    const d = new Date(nowIstMs - daysAgo * 86_400_000);
+    return d.toISOString().slice(0, 10); // date portion of the IST-shifted instant
+}
+
+/**
+ * Fill in a default trailing window of `days` IST days when the caller gave no
+ * explicit range, so time-window views (e.g. "last 10 days") work out of the box
+ * while still honouring any range the user picks.
+ */
+function withDefaultRange(f: AnalyticsFilters, days: number): AnalyticsFilters {
+    if (f.from || f.to) return f;
+    return { ...f, from: istDayKey(days - 1), to: istDayKey(0) };
+}
 
 // A reusable "today in IST" expression.
 const IST_TODAY = `((now() + ${IST_SHIFT})::date)`;
@@ -855,6 +872,115 @@ export async function getMonetizationSummary(f: AnalyticsFilters): Promise<Monet
         lost_reachability: num(push?.lost_reachability),
         lapsed_14d: num(push?.lapsed_14d),
     };
+}
+
+// ===========================================================================
+// MOST ACTIVE USERS — ranked by time spent solving (sum of time_taken).
+//
+// `question_attempts.time_taken` is client-supplied seconds per attempt, so a
+// tab left open can report a wild value. We clamp each attempt to a sane ceiling
+// (PER_ATTEMPT_CAP) before summing, and count only positive times. This measures
+// time-on-task while SOLVING — not full app screentime (no such signal exists).
+// ===========================================================================
+
+const PER_ATTEMPT_CAP_SEC = 600; // 10 min/question ceiling to kill outliers
+
+export interface ActiveUserRow {
+    user_id: string;
+    name: string | null;
+    time_solving_sec: number; // sum of clamped time_taken
+    solved: number; // correct attempts
+    attempts: number; // total attempts
+    active_days: number; // distinct IST days active
+}
+
+/**
+ * Leaderboard of students by time spent solving over the range (defaults to the
+ * last 10 IST days when no range is given). Segmentation-aware.
+ */
+export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promise<ActiveUserRow[]> {
+    const eff = withDefaultRange(f, 10);
+    const scope = userScope(eff, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const dayExpr = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(dayExpr, eff, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+    const limIdx = scope.params.length + range.params.length + 1;
+    const rows = await readonlyQuery<{
+        user_id: string; name: string | null;
+        time_solving_sec: string; solved: string; attempts: string; active_days: string;
+    }>(
+        `SELECT a.user_id,
+            max(u.name) AS name,
+            sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS time_solving_sec,
+            count(*) FILTER (WHERE a.is_correct) AS solved,
+            count(*) AS attempts,
+            count(DISTINCT ${dayExpr}) AS active_days
+         FROM question_attempts a
+         JOIN users u ON u.id = a.user_id
+         WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
+         GROUP BY a.user_id
+         ORDER BY time_solving_sec DESC, solved DESC
+         LIMIT $${limIdx}`,
+        [...scope.params, ...range.params, limit],
+    );
+    return rows.map(r => ({
+        user_id: r.user_id,
+        name: r.name,
+        time_solving_sec: num(r.time_solving_sec),
+        solved: num(r.solved),
+        attempts: num(r.attempts),
+        active_days: num(r.active_days),
+    }));
+}
+
+export interface TopUserDayRow {
+    day: string; // YYYY-MM-DD (IST)
+    user_id: string | null;
+    name: string | null;
+    time_solving_sec: number;
+    solved: number;
+}
+
+/**
+ * The single most-active student (by time solving) for EACH IST day in the range
+ * (defaults to the last 10 days). One row per day, newest first.
+ */
+export async function getTopUserPerDay(f: AnalyticsFilters): Promise<TopUserDayRow[]> {
+    const eff = withDefaultRange(f, 10);
+    const scope = userScope(eff, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const dayExpr = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(dayExpr, eff, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+    const rows = await readonlyQuery<{
+        day: string; user_id: string | null; name: string | null; time_solving_sec: string; solved: string;
+    }>(
+        `WITH per_user_day AS (
+           SELECT ${dayExpr} AS d, a.user_id,
+             max(u.name) AS name,
+             sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS t,
+             count(*) FILTER (WHERE a.is_correct) AS solved
+           FROM question_attempts a JOIN users u ON u.id = a.user_id
+           WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
+           GROUP BY 1, a.user_id
+         ),
+         ranked AS (
+           SELECT *, row_number() OVER (PARTITION BY d ORDER BY t DESC, solved DESC) AS rn
+           FROM per_user_day
+         )
+         SELECT to_char(d, 'YYYY-MM-DD') AS day, user_id, name, t AS time_solving_sec, solved
+         FROM ranked WHERE rn = 1
+         ORDER BY d DESC`,
+        [...scope.params, ...range.params],
+    );
+    return rows.map(r => ({
+        day: r.day,
+        user_id: r.user_id,
+        name: r.name,
+        time_solving_sec: num(r.time_solving_sec),
+        solved: num(r.solved),
+    }));
 }
 
 // ===========================================================================

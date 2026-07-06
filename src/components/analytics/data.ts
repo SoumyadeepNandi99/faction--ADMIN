@@ -15,6 +15,7 @@ import {
     filtersToQuery,
     getMetric,
     type ActivationData,
+    type ActiveUsersData,
     type ClassesData,
     type EngagementData,
     type FeaturesData,
@@ -43,6 +44,7 @@ export const useStreaks = (f: Filters) => useMetric<StreaksData>("streaks", "str
 export const useFeatures = (f: Filters) => useMetric<FeaturesData>("features", "features", f);
 export const useOutcomes = (f: Filters) => useMetric<OutcomesData>("outcomes", "outcomes", f);
 export const useMonetization = (f: Filters) => useMetric<MonetizationData>("monetization", "monetization", f);
+export const useActiveUsers = (f: Filters) => useMetric<ActiveUsersData>("active-users", "active-users", f);
 
 export function useClasses() {
     const { data, error, isLoading } = useSWR<ClassesData>("analytics:classes", () => getMetric<ClassesData>("classes", { from: "", to: "", classId: "", examTypes: [], subscriptionType: "" }), {
