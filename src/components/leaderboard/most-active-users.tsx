@@ -19,8 +19,18 @@ import { useActiveUsers } from "@/components/analytics/data";
 import type { Filters } from "@/lib/api/analytics";
 import { humanDuration } from "@/components/analytics/format";
 import { formatExamType } from "@/lib/exam-types";
+import { formatDate } from "@/lib/datetime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Podium, type PodiumEntry } from "./podium";
+
+/** Human label for the effective window shown on the podium (IST). */
+function rangeLabel(filters: Filters): string {
+    const { from, to } = filters;
+    if (from && to) return from === to ? formatDate(from) : `${formatDate(from)} – ${formatDate(to)}`;
+    if (from) return `Since ${formatDate(from)}`;
+    if (to) return `Until ${formatDate(to)}`;
+    return "Last 10 days";
+}
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -155,7 +165,12 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
     return (
         <div className="flex flex-col gap-4">
             {/* Podium — top 3 by solving time */}
-            <Podium top3={podiumEntries} />
+            <Podium
+                top3={podiumEntries}
+                title="Most Dedicated Student"
+                subtitle={rangeLabel(filters)}
+                showTrophy
+            />
 
             <div className="flex items-center justify-between px-1">
                 <p className="text-xs text-muted-foreground">
