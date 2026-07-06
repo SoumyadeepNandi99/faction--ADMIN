@@ -228,10 +228,13 @@ export interface MonetizationData {
 export interface ActiveUsersData {
     leaderboard: {
         user_id: string; name: string | null;
+        exams: string[]; class_name: string | null;
         time_solving_sec: number; solved: number; attempts: number; active_days: number;
+        solved_physics: number; solved_chemistry: number; solved_biology: number; solved_maths: number;
     }[];
     perDay: {
         day: string; user_id: string | null; name: string | null;
+        exams: string[]; class_name: string | null;
         time_solving_sec: number; solved: number;
     }[];
 }

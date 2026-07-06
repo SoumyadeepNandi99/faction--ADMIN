@@ -894,6 +894,13 @@ export interface ActiveUserRow {
     solved: number; // correct attempts
     attempts: number; // total attempts
     active_days: number; // distinct IST days active
+    // Per-subject correct solves (P/C/B/M). Subject reached via
+    // question → topic → chapter → subject.subject_type. The four sum to `solved`
+    // minus any solves whose question has no subject path (rare/untagged).
+    solved_physics: number;
+    solved_chemistry: number;
+    solved_biology: number;
+    solved_maths: number;
 }
 
 /** Parse the users.target_exams JSON text into a string[] (defensively). */
@@ -923,18 +930,30 @@ export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promi
     const rows = await readonlyQuery<{
         user_id: string; name: string | null; exams: string | null; class_name: string | null;
         time_solving_sec: string; solved: string; attempts: string; active_days: string;
+        solved_physics: string; solved_chemistry: string; solved_biology: string; solved_maths: string;
     }>(
+        // Subject is reached via question → topic → chapter → subject.subject_type.
+        // LEFT-joined so attempts whose question has no subject path still count
+        // toward time/solved/attempts; they just don't land in a P/C/B/M bucket.
         `SELECT a.user_id,
             max(u.name) AS name,
             max((u.target_exams)::text) AS exams,
-            max(c.name) AS class_name,
+            max(cl.name) AS class_name,
             sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS time_solving_sec,
             count(*) FILTER (WHERE a.is_correct) AS solved,
             count(*) AS attempts,
-            count(DISTINCT ${dayExpr}) AS active_days
+            count(DISTINCT ${dayExpr}) AS active_days,
+            count(*) FILTER (WHERE a.is_correct AND sub.subject_type = 'PHYSICS') AS solved_physics,
+            count(*) FILTER (WHERE a.is_correct AND sub.subject_type = 'CHEMISTRY') AS solved_chemistry,
+            count(*) FILTER (WHERE a.is_correct AND sub.subject_type = 'BIOLOGY') AS solved_biology,
+            count(*) FILTER (WHERE a.is_correct AND sub.subject_type = 'MATHS') AS solved_maths
          FROM question_attempts a
          JOIN users u ON u.id = a.user_id
-         LEFT JOIN class c ON c.id = u.class_id
+         LEFT JOIN class cl ON cl.id = u.class_id
+         LEFT JOIN question q ON q.id = a.question_id
+         LEFT JOIN topic t ON t.id = q.topic_id
+         LEFT JOIN chapter ch ON ch.id = t.chapter_id
+         LEFT JOIN subject sub ON sub.id = ch.subject_id
          WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
          GROUP BY a.user_id
          ORDER BY time_solving_sec DESC, solved DESC
@@ -950,6 +969,10 @@ export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promi
         solved: num(r.solved),
         attempts: num(r.attempts),
         active_days: num(r.active_days),
+        solved_physics: num(r.solved_physics),
+        solved_chemistry: num(r.solved_chemistry),
+        solved_biology: num(r.solved_biology),
+        solved_maths: num(r.solved_maths),
     }));
 }
 
