@@ -3,7 +3,7 @@
 /**
  * Most Active Users — a leaderboard tab (moved out of Founder Analytics).
  *
- * Ranks students by productive solving time (measured time spent solving
+ * Ranks students by solving time (measured time spent solving
  * questions) over the selected window. Data comes from the `useActiveUsers`
  * hook (the local `/api/analytics/active-users` route), so unlike the FastAPI
  * ranking tabs it supports the full Exam / Class / Date filter set. Shows the
@@ -138,7 +138,7 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
         return <div className="glass-card p-12 text-center text-muted-foreground">No solving activity for this selection.</div>;
     }
 
-    // Podium always reflects the top 3 by productive solving time (not the
+    // Podium always reflects the top 3 by solving time (not the
     // current table sort), so the "winners" stay stable while sorting the list.
     const podiumEntries: PodiumEntry[] = [...leaderboard]
         .sort((a, b) => b.time_solving_sec - a.time_solving_sec)
@@ -154,7 +154,7 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
 
     return (
         <div className="flex flex-col gap-4">
-            {/* Podium — top 3 by productive solving time */}
+            {/* Podium — top 3 by solving time */}
             <Podium top3={podiumEntries} />
 
             <div className="flex items-center justify-between px-1">
@@ -173,7 +173,7 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
                                 <th className="pb-2 pt-3 px-4 font-medium">Student</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Class</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Exam</th>
-                                <SortHeader label="Productive solving time" col="time_solving_sec" sort={sort} onSort={onSort} />
+                                <SortHeader label="Solving time" col="time_solving_sec" sort={sort} onSort={onSort} />
                                 <SortHeader label="Solved" col="solved" sort={sort} onSort={onSort} />
                                 <th className="pb-2 pt-3 px-4 font-medium text-right" title="Correctly solved per subject: Physics / Chemistry / Biology / Maths">P/C/B/M</th>
                                 {!hideActiveDays && (
