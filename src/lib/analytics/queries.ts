@@ -888,15 +888,29 @@ const PER_ATTEMPT_CAP_SEC = 600; // 10 min/question ceiling to kill outliers
 export interface ActiveUserRow {
     user_id: string;
     name: string | null;
+    exams: string[]; // target exams (e.g. ["JEE_MAINS"]) — labelled client-side
+    class_name: string | null; // e.g. "Class 12"
     time_solving_sec: number; // sum of clamped time_taken
     solved: number; // correct attempts
     attempts: number; // total attempts
     active_days: number; // distinct IST days active
 }
 
+/** Parse the users.target_exams JSON text into a string[] (defensively). */
+function parseExams(raw: string | null): string[] {
+    if (!raw) return [];
+    try {
+        const v = JSON.parse(raw);
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+        return [];
+    }
+}
+
 /**
  * Leaderboard of students by time spent solving over the range (defaults to the
- * last 10 IST days when no range is given). Segmentation-aware.
+ * last 10 IST days when no range is given). Includes the student's target exam(s)
+ * and class. Segmentation-aware.
  */
 export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promise<ActiveUserRow[]> {
     const eff = withDefaultRange(f, 10);
@@ -907,17 +921,20 @@ export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promi
     const rangeAnd = range.sql ? `AND ${range.sql}` : "";
     const limIdx = scope.params.length + range.params.length + 1;
     const rows = await readonlyQuery<{
-        user_id: string; name: string | null;
+        user_id: string; name: string | null; exams: string | null; class_name: string | null;
         time_solving_sec: string; solved: string; attempts: string; active_days: string;
     }>(
         `SELECT a.user_id,
             max(u.name) AS name,
+            max((u.target_exams)::text) AS exams,
+            max(c.name) AS class_name,
             sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS time_solving_sec,
             count(*) FILTER (WHERE a.is_correct) AS solved,
             count(*) AS attempts,
             count(DISTINCT ${dayExpr}) AS active_days
          FROM question_attempts a
          JOIN users u ON u.id = a.user_id
+         LEFT JOIN class c ON c.id = u.class_id
          WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
          GROUP BY a.user_id
          ORDER BY time_solving_sec DESC, solved DESC
@@ -927,6 +944,8 @@ export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promi
     return rows.map(r => ({
         user_id: r.user_id,
         name: r.name,
+        exams: parseExams(r.exams),
+        class_name: r.class_name,
         time_solving_sec: num(r.time_solving_sec),
         solved: num(r.solved),
         attempts: num(r.attempts),
@@ -938,6 +957,8 @@ export interface TopUserDayRow {
     day: string; // YYYY-MM-DD (IST)
     user_id: string | null;
     name: string | null;
+    exams: string[];
+    class_name: string | null;
     time_solving_sec: number;
     solved: number;
 }
@@ -954,14 +975,18 @@ export async function getTopUserPerDay(f: AnalyticsFilters): Promise<TopUserDayR
     const range = dayRangePredicate(dayExpr, eff, scope.params.length + 1);
     const rangeAnd = range.sql ? `AND ${range.sql}` : "";
     const rows = await readonlyQuery<{
-        day: string; user_id: string | null; name: string | null; time_solving_sec: string; solved: string;
+        day: string; user_id: string | null; name: string | null; exams: string | null;
+        class_name: string | null; time_solving_sec: string; solved: string;
     }>(
         `WITH per_user_day AS (
            SELECT ${dayExpr} AS d, a.user_id,
              max(u.name) AS name,
+             max((u.target_exams)::text) AS exams,
+             max(c.name) AS class_name,
              sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS t,
              count(*) FILTER (WHERE a.is_correct) AS solved
            FROM question_attempts a JOIN users u ON u.id = a.user_id
+           LEFT JOIN class c ON c.id = u.class_id
            WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
            GROUP BY 1, a.user_id
          ),
@@ -969,7 +994,7 @@ export async function getTopUserPerDay(f: AnalyticsFilters): Promise<TopUserDayR
            SELECT *, row_number() OVER (PARTITION BY d ORDER BY t DESC, solved DESC) AS rn
            FROM per_user_day
          )
-         SELECT to_char(d, 'YYYY-MM-DD') AS day, user_id, name, t AS time_solving_sec, solved
+         SELECT to_char(d, 'YYYY-MM-DD') AS day, user_id, name, exams, class_name, t AS time_solving_sec, solved
          FROM ranked WHERE rn = 1
          ORDER BY d DESC`,
         [...scope.params, ...range.params],
@@ -978,6 +1003,8 @@ export async function getTopUserPerDay(f: AnalyticsFilters): Promise<TopUserDayR
         day: r.day,
         user_id: r.user_id,
         name: r.name,
+        exams: parseExams(r.exams),
+        class_name: r.class_name,
         time_solving_sec: num(r.time_solving_sec),
         solved: num(r.solved),
     }));

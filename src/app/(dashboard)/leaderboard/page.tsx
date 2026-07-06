@@ -5,6 +5,7 @@ import { apiClient } from "@/lib/axios";
 import { Trophy, TrendingUp, Flame, Award, Star, RefreshCw, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { MostActiveUsers } from "@/components/leaderboard/most-active-users";
 
 type RankingTab = "arena" | "rating" | "streak" | "contest";
 
@@ -252,6 +253,9 @@ export default function LeaderboardPage() {
                         </>
                     )}
                 </div>
+
+                {/* Most Active Users — podium + ranked list (moved from Founder Analytics) */}
+                <MostActiveUsers />
             </div>
         </>
     );

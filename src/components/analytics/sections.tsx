@@ -25,7 +25,6 @@ import {
     Smartphone,
     Star,
     Swords,
-    Timer,
     TrendingUp,
     Trophy,
     UserPlus,
@@ -46,7 +45,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     useActivation,
-    useActiveUsers,
     useEngagement,
     useFeatures,
     useMonetization,
@@ -55,7 +53,7 @@ import {
 } from "./data";
 import { AnalyticsFetchError, type Filters } from "@/lib/api/analytics";
 import { formatDate } from "@/lib/datetime";
-import { humanDuration, humanHours, kpi, n, pct } from "./format";
+import { humanHours, kpi, n, pct } from "./format";
 import { EXPLAIN } from "./explain";
 
 // ---------------------------------------------------------------------------
@@ -831,100 +829,7 @@ function LabeledBar({ label, value }: { label: string; value: number | null }) {
     );
 }
 
-// ===========================================================================
-// MOST ACTIVE USERS — ranked by time spent solving (measured time-on-task).
-// ===========================================================================
-const MEDALS = ["🥇", "🥈", "🥉"];
-
-export function MostActiveUsersSection({ filters }: { filters: Filters }) {
-    const { data, error, loading } = useActiveUsers(filters);
-    const leaderboard = data?.leaderboard ?? [];
-    const perDay = data?.perDay ?? [];
-    const rangeLabel = filters.from || filters.to ? "selected range" : "last 10 days";
-
-    return (
-        <Section
-            title="Most Active Users"
-            description={`Ranked by time spent solving questions (${rangeLabel}, IST)`}
-            icon={<Timer className="h-5 w-5" />}
-        >
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Leaderboard (spans 2 cols) */}
-                <Card
-                    title="Top Solvers by Time"
-                    subtitle="Measured time on task, not full app screentime"
-                    info={EXPLAIN.mostActive}
-                    className="lg:col-span-2"
-                >
-                    {loading ? (
-                        <ChartSkeleton height={260} />
-                    ) : error ? (
-                        <ErrorState {...errParts(error)} />
-                    ) : leaderboard.length === 0 ? (
-                        <EmptyState message="No solving activity in this window." />
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-(--border) text-left text-xs text-muted-foreground">
-                                        <th className="pb-2 px-2 font-medium w-10 text-center">#</th>
-                                        <th className="pb-2 px-2 font-medium">Student</th>
-                                        <th className="pb-2 px-2 font-medium text-right">Time solving</th>
-                                        <th className="pb-2 px-2 font-medium text-right">Solved</th>
-                                        <th className="pb-2 px-2 font-medium text-right">Active days</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-(--border)">
-                                    {leaderboard.slice(0, 20).map((u, i) => (
-                                        <tr key={u.user_id} className="hover:bg-foreground/[0.03]">
-                                            <td className="py-2.5 px-2 text-center">
-                                                {i < 3 ? <span className="text-base leading-none">{MEDALS[i]}</span> : <span className="text-xs font-mono text-muted-foreground">{i + 1}</span>}
-                                            </td>
-                                            <td className="py-2.5 px-2">
-                                                <div className="flex items-center gap-2.5">
-                                                    <div className="h-7 w-7 shrink-0 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-600 dark:text-brand-400 font-bold border border-brand-500/20 text-xs">
-                                                        {u.name?.[0]?.toUpperCase() || "?"}
-                                                    </div>
-                                                    <span className="truncate font-medium text-foreground">{u.name || "Unknown"}</span>
-                                                </div>
-                                            </td>
-                                            <td className="py-2.5 px-2 text-right font-bold tabular-nums text-foreground">{humanDuration(u.time_solving_sec)}</td>
-                                            <td className="py-2.5 px-2 text-right tabular-nums text-muted-foreground">{u.solved.toLocaleString()}</td>
-                                            <td className="py-2.5 px-2 text-right tabular-nums text-muted-foreground">{u.active_days}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </Card>
-
-                {/* Top user per day */}
-                <Card title="Most Active per Day" subtitle="The #1 student each day (IST)" info={EXPLAIN.mostActive}>
-                    {loading ? (
-                        <ChartSkeleton height={260} />
-                    ) : error ? (
-                        <ErrorState {...errParts(error)} />
-                    ) : perDay.length === 0 ? (
-                        <EmptyState message="No daily activity in this window." />
-                    ) : (
-                        <div className="flex flex-col divide-y divide-(--border)">
-                            {perDay.map(d => (
-                                <div key={d.day} className="flex items-center justify-between gap-3 py-2.5">
-                                    <div className="min-w-0">
-                                        <p className="text-xs text-muted-foreground">{formatDate(d.day)}</p>
-                                        <p className="text-sm font-medium text-foreground truncate">{d.name || "Unknown"}</p>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                        <p className="text-sm font-bold text-foreground tabular-nums">{humanDuration(d.time_solving_sec)}</p>
-                                        <p className="text-[11px] text-muted-foreground">{d.solved} solved</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </Card>
-            </div>
-        </Section>
-    );
-}
+// NOTE: The "Most Active Users" section was moved out of Founder Analytics
+// into the Leaderboard module — see
+// `src/components/leaderboard/most-active-users.tsx`. It still reads the same
+// `useActiveUsers` hook / `/api/analytics/active-users` route.

@@ -10,7 +10,6 @@ import {
     FeatureUsageSection,
     LearningOutcomesSection,
     MonetizationSection,
-    MostActiveUsersSection,
     StreakSection,
 } from "@/components/analytics/sections";
 import { LazyMount } from "@/components/analytics/primitives";
@@ -70,9 +69,6 @@ export default function AnalyticsPage() {
             </LazyMount>
             <LazyMount>
                 <LearningOutcomesSection filters={filters} />
-            </LazyMount>
-            <LazyMount>
-                <MostActiveUsersSection filters={filters} />
             </LazyMount>
             <LazyMount>
                 <MonetizationSection filters={filters} />

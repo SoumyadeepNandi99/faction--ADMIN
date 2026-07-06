@@ -123,6 +123,56 @@
   }
 }
 
+/* ===== Futuristic podium (ported from faction-web leaderboard) ===== */
+@layer components {
+  /* Dark holographic stage behind the podium. Uses a per-instance --accent
+     (set inline) with an --accent-soft fallback so it renders in both themes. */
+  .fx-podium-stage {
+    --accent: var(--color-brand-500);
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    background:
+      radial-gradient(120% 90% at 50% 120%, var(--accent-soft), transparent 60%),
+      linear-gradient(180deg, #17091f 0%, #0e0616 60%, #090410 100%);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 30px 70px -32px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+
+  /* Perspective grid floor. */
+  .fx-podium-grid {
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--accent) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, transparent) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(120% 80% at 50% 100%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(120% 80% at 50% 100%, #000 20%, transparent 75%);
+  }
+
+  /* A single podium pedestal — glossy top face with a neon leading edge. */
+  .fx-pedestal {
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--p-color) 26%, transparent),
+        color-mix(in srgb, var(--p-color) 6%, transparent) 45%,
+        transparent);
+    border: 1px solid color-mix(in srgb, var(--p-color) 55%, transparent);
+    border-bottom: none;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--p-color) 70%, transparent),
+      0 -8px 26px -10px var(--p-glow);
+  }
+  .fx-pedestal::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--p-color);
+    box-shadow: 0 0 12px var(--p-glow);
+  }
+}
+
 /* Custom Scrollbar for dark theme */
 ::-webkit-scrollbar {
   width: 8px;
