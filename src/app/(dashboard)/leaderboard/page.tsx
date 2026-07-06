@@ -72,6 +72,41 @@ const TIME_FILTER_OPTIONS = [
     { label: "Today", value: "day" },
 ];
 
+// --- Most Active Users quick ranges (write real IST dates into from/to) ------
+// The active-users route buckets by IST, so quick ranges resolve to IST
+// YYYY-MM-DD strings. "All Time" clears both (no window).
+type QuickRangeKey = "all" | "today" | "week" | "month";
+
+/** Today in IST as YYYY-MM-DD. */
+function istToday(): string {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+/** N days before IST-today as YYYY-MM-DD. */
+function istDaysAgo(n: number): string {
+    const now = new Date();
+    const shifted = new Date(now.getTime() - n * 86_400_000);
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(shifted);
+}
+
+/** Map a quick-range key to a {from, to} pair (empty strings = all time). */
+function quickRangeToDates(key: QuickRangeKey): { from: string; to: string } {
+    const to = istToday();
+    switch (key) {
+        case "today": return { from: to, to };
+        case "week": return { from: istDaysAgo(6), to };   // last 7 days incl. today
+        case "month": return { from: istDaysAgo(29), to }; // last 30 days incl. today
+        case "all":
+        default: return { from: "", to: "" };
+    }
+}
+
+const MOST_ACTIVE_RANGES: { label: string; key: QuickRangeKey }[] = [
+    { label: "All Time", key: "all" },
+    { label: "Today", key: "today" },
+    { label: "This Week", key: "week" },
+    { label: "This Month", key: "month" },
+];
+
 export default function LeaderboardPage() {
     const [activeTab, setActiveTab] = useState<RankingTab>("arena");
     const [users, setUsers] = useState<RankUser[]>([]);
@@ -208,7 +243,7 @@ export default function LeaderboardPage() {
             />
 
             {activeTab === "mostactive" ? (
-                <MostActiveUsers filters={filters} />
+                <MostActiveUsers filters={filters} hideActiveDays={Boolean(filters.from || filters.to)} />
             ) : (
                 <div className="flex flex-col gap-4">
                     {/* Podium (top 3) for the active API tab */}
@@ -250,7 +285,12 @@ export default function LeaderboardPage() {
                                             </span>
                                             <Avatar name={u.user_name || "?"} url={u.avatar_url} />
                                             <div className="flex-1 min-w-0">
-                                                <p className="font-semibold text-foreground truncate">{u.user_name || "Unknown"}</p>
+                                                <p className="font-semibold text-foreground truncate">
+                                                    {u.user_name || "Unknown"}
+                                                    <span className="ml-2 text-sm font-bold text-brand-600 dark:text-brand-400 tabular-nums">
+                                                        {u.metric?.toLocaleString()}
+                                                    </span>
+                                                </p>
                                                 {u.badge && <p className="text-xs text-muted-foreground">{u.badge}</p>}
                                                 {u.max_metric !== undefined && (
                                                     <p className="text-xs text-muted-foreground">Peak: {u.max_metric?.toLocaleString()}</p>
@@ -375,7 +415,7 @@ function FilterBar({
                 </div>
             </div>
 
-            {/* Arena keeps its quick week/day bucket. */}
+            {/* Arena keeps its quick week/day bucket (API time_filter). */}
             {tab.supportsTimeFilter && (
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">Quick range:</span>
@@ -388,6 +428,26 @@ function FilterBar({
                             {o.label}
                         </button>
                     ))}
+                </div>
+            )}
+
+            {/* Most Active Users quick ranges write real IST dates into from/to. */}
+            {tab.supportsDate && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Quick range:</span>
+                    {MOST_ACTIVE_RANGES.map(r => {
+                        const d = quickRangeToDates(r.key);
+                        const active = filters.from === d.from && filters.to === d.to;
+                        return (
+                            <button
+                                key={r.key}
+                                onClick={() => onChange(d)}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${active ? "bg-brand-500 text-white" : "bg-foreground/5 text-muted-foreground hover:text-foreground"}`}
+                            >
+                                {r.label}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
         </div>
