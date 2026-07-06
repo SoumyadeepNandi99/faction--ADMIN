@@ -4,14 +4,17 @@
  * Most Active Users — a leaderboard tab (moved out of Founder Analytics).
  *
  * Ranks students by productive solving time (measured time spent solving
- * questions) over the
- * selected window. Data comes from the `useActiveUsers` hook (the local
- * `/api/analytics/active-users` route), so unlike the FastAPI ranking tabs it
- * supports the full Exam / Class / Date filter set. Shows the shared podium for
- * the top 3, then a table with per-row Exam and P/C/B/M (per-subject solved)
- * columns.
+ * questions) over the selected window. Data comes from the `useActiveUsers`
+ * hook (the local `/api/analytics/active-users` route), so unlike the FastAPI
+ * ranking tabs it supports the full Exam / Class / Date filter set. Shows the
+ * shared podium for the top 3, then a table with Class, Exam and P/C/B/M
+ * (per-subject solved) columns. Columns are client-sortable; the "Active days"
+ * column only makes sense over the all-time window, so it hides when a date
+ * range is active.
  */
 
+import { useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useActiveUsers } from "@/components/analytics/data";
 import type { Filters } from "@/lib/api/analytics";
 import { humanDuration } from "@/components/analytics/format";
@@ -35,6 +38,8 @@ type LeaderRow = {
     solved_biology: number;
     solved_maths: number;
 };
+
+type SortKey = "time_solving_sec" | "solved" | "active_days";
 
 /** Compact per-subject solved cell: P C B M with dimmed zeros. */
 function SubjectCounts({ u }: { u: LeaderRow }) {
@@ -69,9 +74,46 @@ function RowAvatar({ name }: { name: string | null }) {
     );
 }
 
-export function MostActiveUsers({ filters }: { filters: Filters }) {
+/** A right-aligned, clickable sortable column header. */
+function SortHeader({
+    label,
+    col,
+    sort,
+    onSort,
+    title,
+}: {
+    label: string;
+    col: SortKey;
+    sort: { key: SortKey; dir: "asc" | "desc" };
+    onSort: (k: SortKey) => void;
+    title?: string;
+}) {
+    const active = sort.key === col;
+    return (
+        <th className="pb-2 pt-3 px-4 font-medium text-right" title={title}>
+            <button
+                onClick={() => onSort(col)}
+                className={`inline-flex items-center gap-1 ml-auto transition-colors cursor-pointer ${active ? "text-foreground" : "hover:text-foreground"}`}
+            >
+                {label}
+                {active ? (
+                    sort.dir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />
+                ) : (
+                    <ChevronDown className="h-3 w-3 opacity-20" />
+                )}
+            </button>
+        </th>
+    );
+}
+
+export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters; hideActiveDays?: boolean }) {
     const { data, error, loading } = useActiveUsers(filters);
     const leaderboard = (data?.leaderboard ?? []) as LeaderRow[];
+
+    // Client-side sort. Default matches the server order (solving time desc).
+    const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "time_solving_sec", dir: "desc" });
+    const onSort = (key: SortKey) =>
+        setSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
     if (loading) {
         return (
@@ -96,19 +138,32 @@ export function MostActiveUsers({ filters }: { filters: Filters }) {
         return <div className="glass-card p-12 text-center text-muted-foreground">No solving activity for this selection.</div>;
     }
 
-    const podiumEntries: PodiumEntry[] = leaderboard.slice(0, 3).map(u => ({
-        id: u.user_id,
-        name: u.name,
-        metric: humanDuration(u.time_solving_sec),
-        metricUnit: "solving",
-    }));
+    // Podium always reflects the top 3 by productive solving time (not the
+    // current table sort), so the "winners" stay stable while sorting the list.
+    const podiumEntries: PodiumEntry[] = [...leaderboard]
+        .sort((a, b) => b.time_solving_sec - a.time_solving_sec)
+        .slice(0, 3)
+        .map(u => ({ id: u.user_id, name: u.name, metric: humanDuration(u.time_solving_sec), metricUnit: "solving" }));
+
+    const sorted = [...leaderboard].sort((a, b) => {
+        const av = a[sort.key], bv = b[sort.key];
+        return sort.dir === "desc" ? bv - av : av - bv;
+    });
+
+    const colCount = hideActiveDays ? 6 : 7;
 
     return (
         <div className="flex flex-col gap-4">
             {/* Podium — top 3 by productive solving time */}
             <Podium top3={podiumEntries} />
 
-            {/* Full ranked table with Exam + P/C/B/M columns */}
+            <div className="flex items-center justify-between px-1">
+                <p className="text-xs text-muted-foreground">
+                    {leaderboard.length.toLocaleString()} student{leaderboard.length === 1 ? "" : "s"} with activity
+                </p>
+            </div>
+
+            {/* Full ranked table with Class, Exam + P/C/B/M columns */}
             <div className="glass-card overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -116,15 +171,18 @@ export function MostActiveUsers({ filters }: { filters: Filters }) {
                             <tr className="border-b border-(--border) text-left text-xs text-muted-foreground">
                                 <th className="pb-2 pt-3 px-4 font-medium w-10 text-center">#</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Student</th>
+                                <th className="pb-2 pt-3 px-4 font-medium">Class</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Exam</th>
-                                <th className="pb-2 pt-3 px-4 font-medium text-right">Productive solving time</th>
-                                <th className="pb-2 pt-3 px-4 font-medium text-right">Solved</th>
+                                <SortHeader label="Productive solving time" col="time_solving_sec" sort={sort} onSort={onSort} />
+                                <SortHeader label="Solved" col="solved" sort={sort} onSort={onSort} />
                                 <th className="pb-2 pt-3 px-4 font-medium text-right" title="Correctly solved per subject: Physics / Chemistry / Biology / Maths">P/C/B/M</th>
-                                <th className="pb-2 pt-3 px-4 font-medium text-right">Active days</th>
+                                {!hideActiveDays && (
+                                    <SortHeader label="Active days" col="active_days" sort={sort} onSort={onSort} />
+                                )}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-(--border)">
-                            {leaderboard.slice(0, 50).map((u, i) => (
+                            {sorted.map((u, i) => (
                                 <tr key={u.user_id} className="hover:bg-foreground/[0.03]">
                                     <td className="py-2.5 px-4 text-center">
                                         {i < 3 ? (
@@ -136,13 +194,15 @@ export function MostActiveUsers({ filters }: { filters: Filters }) {
                                     <td className="py-2.5 px-4">
                                         <div className="flex items-center gap-2.5">
                                             <RowAvatar name={u.name} />
-                                            <div className="min-w-0">
-                                                <span className="block truncate font-medium text-foreground">{u.name || "Unknown"}</span>
-                                                {u.class_name && (
-                                                    <span className="block truncate text-[11px] text-muted-foreground">{u.class_name}</span>
-                                                )}
-                                            </div>
+                                            <span className="block truncate font-medium text-foreground">{u.name || "Unknown"}</span>
                                         </div>
+                                    </td>
+                                    <td className="py-2.5 px-4">
+                                        {u.class_name ? (
+                                            <span className="text-muted-foreground">{u.class_name}</span>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground/50">—</span>
+                                        )}
                                     </td>
                                     <td className="py-2.5 px-4">
                                         {u.exams.length === 0 ? (
@@ -169,11 +229,18 @@ export function MostActiveUsers({ filters }: { filters: Filters }) {
                                     <td className="py-2.5 px-4">
                                         <SubjectCounts u={u} />
                                     </td>
-                                    <td className="py-2.5 px-4 text-right tabular-nums text-muted-foreground">
-                                        {u.active_days}
-                                    </td>
+                                    {!hideActiveDays && (
+                                        <td className="py-2.5 px-4 text-right tabular-nums text-muted-foreground">
+                                            {u.active_days}
+                                        </td>
+                                    )}
                                 </tr>
                             ))}
+                            {sorted.length === 0 && (
+                                <tr>
+                                    <td colSpan={colCount} className="py-8 text-center text-muted-foreground">No students match this selection.</td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>

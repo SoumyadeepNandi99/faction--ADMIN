@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 
 async function activeUsers(f: AnalyticsFilters) {
     const [leaderboard, perDay] = await Promise.all([
-        getMostActiveUsers(f, 50),
+        // Full leaderboard (not capped at 50). 500 is a generous upper bound that
+        // covers the active-student population without an unbounded scan.
+        getMostActiveUsers(f, 500),
         getTopUserPerDay(f),
     ]);
     return { leaderboard, perDay };
