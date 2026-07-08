@@ -123,6 +123,8 @@ export interface PoolQuestion {
     marks: number;
     question_image?: string | null;
     hidden: boolean;
+    // Present on the questions API (QuestionResponse); used to sort "recently added".
+    created_at?: string | null;
 }
 
 export interface QuestionPage {
@@ -200,18 +202,27 @@ export const getPyqQuestionMap = async (): Promise<Map<string, PyqInfo>> => {
 // builder can label questions by chapter and offer a chapter filter.
 
 interface ChapterLite { id: string; name: string; }
-interface TopicLite { id: string; chapter_id: string; }
+interface TopicLite { id: string; name: string; chapter_id: string }
 
 export interface ChapterRef { chapterId: string; chapterName: string; }
+/** A canonical subtopic (topic row) with its parent chapter, for labels + filters. */
+export interface SubtopicRef { topicId: string; topicName: string; chapterId: string }
 
 /**
- * For a subject, return { chapters, topicToChapter } where `chapters` is the
- * subject's chapter list (for the filter dropdown) and `topicToChapter` maps each
- * topic_id to its chapter. Topic lists are fetched per chapter and in parallel.
+ * For a subject, return the chapter list (filter dropdown), and maps from each
+ * topic_id to its chapter and to its subtopic name, plus the subtopics grouped by
+ * chapter (for the subtopic filter). Topic lists are fetched per chapter, in
+ * parallel; each chapter's topics are returned by the API in canonical order,
+ * which we preserve in `subtopicsByChapter`.
  */
 export const getSubjectChapterMap = async (
     subjectId: string,
-): Promise<{ chapters: ChapterRef[]; topicToChapter: Map<string, ChapterRef> }> => {
+): Promise<{
+    chapters: ChapterRef[];
+    topicToChapter: Map<string, ChapterRef>;
+    topicToSubtopic: Map<string, string>;
+    subtopicsByChapter: Map<string, SubtopicRef[]>;
+}> => {
     const { data: chapterData } = await apiClient.get<{ chapters?: ChapterLite[] }>(
         "/api/v1/chapters/",
         { params: { subject_id: subjectId } },
@@ -220,20 +231,28 @@ export const getSubjectChapterMap = async (
     const chapters: ChapterRef[] = chapterList.map(c => ({ chapterId: c.id, chapterName: c.name }));
 
     const topicToChapter = new Map<string, ChapterRef>();
+    const topicToSubtopic = new Map<string, string>();
+    const subtopicsByChapter = new Map<string, SubtopicRef[]>();
     await Promise.all(
         chapters.map(async ch => {
             try {
                 const { data } = await apiClient.get<{ topics?: TopicLite[] }>("/api/v1/topics/", {
                     params: { chapter_id: ch.chapterId },
                 });
-                for (const t of data?.topics ?? []) topicToChapter.set(t.id, ch);
+                const list: SubtopicRef[] = [];
+                for (const t of data?.topics ?? []) {
+                    topicToChapter.set(t.id, ch);
+                    if (t.name) topicToSubtopic.set(t.id, t.name);
+                    list.push({ topicId: t.id, topicName: t.name, chapterId: ch.chapterId });
+                }
+                subtopicsByChapter.set(ch.chapterId, list);
             } catch {
                 // A missing chapter's topics just leaves those questions chapter-less.
             }
         }),
     );
 
-    return { chapters, topicToChapter };
+    return { chapters, topicToChapter, topicToSubtopic, subtopicsByChapter };
 };
 
 /** A single question as returned by the contest-questions endpoint (only `id` is used here). */

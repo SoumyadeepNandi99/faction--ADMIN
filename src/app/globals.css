@@ -191,3 +191,19 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-dark-500);
 }
+/* Contest question picker: clamp inline-LaTeX question text to ~3 lines and keep
+   KaTeX from forcing horizontal overflow inside the narrow list rows. */
+.latex-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.latex-clamp .katex {
+  white-space: normal;
+  font-size: 1em;
+}
+.latex-clamp .katex-display {
+  display: inline;
+  margin: 0;
+}
