@@ -7,10 +7,9 @@
  * questions) over the selected window. Data comes from the `useActiveUsers`
  * hook (the local `/api/analytics/active-users` route), so unlike the FastAPI
  * ranking tabs it supports the full Exam / Class / Date filter set. Shows the
- * shared podium for the top 3, then a table with Class, Exam and P/C/B/M
- * (per-subject solved) columns. Columns are client-sortable; the "Active days"
- * column only makes sense over the all-time window, so it hides when a date
- * range is active.
+ * shared podium for the top 3, then a table with Class, Solving time and Solved
+ * columns. Columns are client-sortable; the "Active days" column only makes
+ * sense over the all-time window, so it hides when a date range is active.
  */
 
 import { useState } from "react";
@@ -18,7 +17,6 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useActiveUsers } from "@/components/analytics/data";
 import type { Filters } from "@/lib/api/analytics";
 import { humanDuration } from "@/components/analytics/format";
-import { formatExamType } from "@/lib/exam-types";
 import { formatDate } from "@/lib/datetime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Podium, type PodiumEntry } from "./podium";
@@ -50,30 +48,6 @@ type LeaderRow = {
 };
 
 type SortKey = "time_solving_sec" | "solved" | "active_days";
-
-/** Compact per-subject solved cell: P C B M with dimmed zeros. */
-function SubjectCounts({ u }: { u: LeaderRow }) {
-    const cells: { k: string; v: number }[] = [
-        { k: "P", v: u.solved_physics },
-        { k: "C", v: u.solved_chemistry },
-        { k: "B", v: u.solved_biology },
-        { k: "M", v: u.solved_maths },
-    ];
-    return (
-        <div className="flex items-center justify-end gap-1.5 tabular-nums">
-            {cells.map(c => (
-                <span
-                    key={c.k}
-                    title={{ P: "Physics", C: "Chemistry", B: "Biology", M: "Maths" }[c.k]}
-                    className={`inline-flex min-w-[2.25rem] items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs ${c.v > 0 ? "bg-brand-500/10 text-brand-600 dark:text-brand-400 font-semibold" : "text-muted-foreground/40"}`}
-                >
-                    <span className="font-bold">{c.k}</span>
-                    {c.v}
-                </span>
-            ))}
-        </div>
-    );
-}
 
 /** Small initials avatar for table rows. */
 function RowAvatar({ name }: { name: string | null }) {
@@ -160,7 +134,7 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
         return sort.dir === "desc" ? bv - av : av - bv;
     });
 
-    const colCount = hideActiveDays ? 6 : 7;
+    const colCount = hideActiveDays ? 4 : 5;
 
     return (
         <div className="flex flex-col gap-4">
@@ -178,7 +152,7 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
                 </p>
             </div>
 
-            {/* Full ranked table with Class, Exam + P/C/B/M columns */}
+            {/* Full ranked table with Class, Solving time and Solved columns */}
             <div className="glass-card overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -187,10 +161,8 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
                                 <th className="pb-2 pt-3 px-4 font-medium w-10 text-center">#</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Student</th>
                                 <th className="pb-2 pt-3 px-4 font-medium">Class</th>
-                                <th className="pb-2 pt-3 px-4 font-medium">Exam</th>
                                 <SortHeader label="Solving time" col="time_solving_sec" sort={sort} onSort={onSort} />
                                 <SortHeader label="Solved" col="solved" sort={sort} onSort={onSort} />
-                                <th className="pb-2 pt-3 px-4 font-medium text-right" title="Correctly solved per subject: Physics / Chemistry / Biology / Maths">P/C/B/M</th>
                                 {!hideActiveDays && (
                                     <SortHeader label="Active days" col="active_days" sort={sort} onSort={onSort} />
                                 )}
@@ -219,30 +191,11 @@ export function MostActiveUsers({ filters, hideActiveDays }: { filters: Filters;
                                             <span className="text-xs text-muted-foreground/50">—</span>
                                         )}
                                     </td>
-                                    <td className="py-2.5 px-4">
-                                        {u.exams.length === 0 ? (
-                                            <span className="text-xs text-muted-foreground/50">—</span>
-                                        ) : (
-                                            <div className="flex flex-wrap gap-1">
-                                                {u.exams.map(ex => (
-                                                    <span
-                                                        key={ex}
-                                                        className="inline-flex items-center rounded-full border border-brand-500/20 bg-brand-500/5 px-2 py-0.5 text-[11px] font-medium text-brand-600 dark:text-brand-400"
-                                                    >
-                                                        {formatExamType(ex)}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </td>
                                     <td className="py-2.5 px-4 text-right font-bold tabular-nums text-foreground">
                                         {humanDuration(u.time_solving_sec)}
                                     </td>
                                     <td className="py-2.5 px-4 text-right tabular-nums text-muted-foreground">
                                         {u.solved.toLocaleString()}
-                                    </td>
-                                    <td className="py-2.5 px-4">
-                                        <SubjectCounts u={u} />
                                     </td>
                                     {!hideActiveDays && (
                                         <td className="py-2.5 px-4 text-right tabular-nums text-muted-foreground">
