@@ -58,7 +58,7 @@ type Tab = {
 const tabs: Tab[] = [
     { key: "arena", label: "Arena (Questions)", icon: <Trophy className="h-4 w-4" />, endpoint: "/api/v1/arena-ranking/", metricKey: "questions_solved", metricLabel: "solved", supportsExam: true, supportsClass: false, supportsDate: false, supportsTimeFilter: true },
     { key: "rating", label: "Rating", icon: <Star className="h-4 w-4" />, endpoint: "/api/v1/rating-ranking/", metricKey: "current_rating", metricLabel: "rating", maxMetricKey: "max_rating", supportsExam: true, supportsClass: false, supportsDate: false },
-    { key: "streak", label: "Streak", icon: <Flame className="h-4 w-4" />, endpoint: "/api/v1/streak-ranking/", metricKey: "streak_count", metricLabel: "days", supportsExam: true, supportsClass: false, supportsDate: false },
+    { key: "streak", label: "Streak", icon: <Flame className="h-4 w-4" />, endpoint: "/api/v1/streak-ranking/", metricKey: "current_streak", metricLabel: "days", maxMetricKey: "longest_streak", supportsExam: true, supportsClass: false, supportsDate: false },
     { key: "contest", label: "Contest", icon: <Award className="h-4 w-4" />, endpoint: "/api/v1/contest-ranking/", metricKey: "score", metricLabel: "pts", supportsExam: true, supportsClass: false, supportsDate: false },
     { key: "mostactive", label: "Most Active Users", icon: <Timer className="h-4 w-4" />, supportsExam: true, supportsClass: true, supportsDate: true },
 ];
@@ -184,7 +184,9 @@ export default function LeaderboardPage() {
         };
         if (activeTab === "rating") return pick(topPerformers.best_rating, "rating");
         if (activeTab === "arena") return pick(topPerformers.best_questions, "solved");
-        if (activeTab === "streak") return pick(topPerformers.best_delta, "delta");
+        // The top-performers endpoint carries no "top streak" field, so the streak
+        // tab has no contextual chip — the podium + table already surface the
+        // leading streaks (previously this mis-showed the rating-delta leader).
         return null;
     })();
 
