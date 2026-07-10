@@ -19,7 +19,6 @@ import {
     Map,
     NotebookText,
     CalendarClock,
-    CalendarDays,
     GalleryHorizontalEnd,
     BarChart3,
 } from "lucide-react";
@@ -38,7 +37,6 @@ const navigation = [
     { name: "Home Banners", href: "/banners", icon: GalleryHorizontalEnd },
     { name: "Notes", href: "/notes", icon: NotebookText },
     { name: "Assessments", href: "/assessments", icon: Award },
-    { name: "Events", href: "/events", icon: CalendarDays },
     { name: "Leaderboard", href: "/leaderboard", icon: Trophy },
     { name: "YouTube Videos", href: "/videos", icon: Youtube },
     { name: "Badges", href: "/badges", icon: BadgeCheck },

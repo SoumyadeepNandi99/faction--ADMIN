@@ -915,16 +915,19 @@ function parseExams(raw: string | null): string[] {
 }
 
 /**
- * Leaderboard of students by time spent solving over the range (defaults to the
- * last 10 IST days when no range is given). Includes the student's target exam(s)
- * and class. Segmentation-aware.
+ * Leaderboard of students by time spent solving. When a date range is given it
+ * is honoured; when NONE is given this is a true all-time leaderboard (every
+ * attempt, no implicit window). Includes the student's target exam(s) and class.
+ * Segmentation-aware.
  */
 export async function getMostActiveUsers(f: AnalyticsFilters, limit = 50): Promise<ActiveUserRow[]> {
-    const eff = withDefaultRange(f, 10);
-    const scope = userScope(eff, 1);
+    // No implicit default window: "All Time" (empty from/to) must scan all
+    // attempts. dayRangePredicate returns "" when there is no range, so the date
+    // bound simply drops out. A range, when supplied, still applies as before.
+    const scope = userScope(f, 1);
     const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
     const dayExpr = `(a.attempted_at + ${IST_SHIFT})::date`;
-    const range = dayRangePredicate(dayExpr, eff, scope.params.length + 1);
+    const range = dayRangePredicate(dayExpr, f, scope.params.length + 1);
     const rangeAnd = range.sql ? `AND ${range.sql}` : "";
     const limIdx = scope.params.length + range.params.length + 1;
     const rows = await readonlyQuery<{
