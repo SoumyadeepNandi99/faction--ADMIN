@@ -121,6 +121,27 @@ export async function resolveSegment(key: string): Promise<ResolvedSegment> {
     return getSegmentsJson<ResolvedSegment>(`?segment=${encodeURIComponent(key)}`);
 }
 
+// ---------------------------------------------------------------------------
+// Class-wise broadcast audience — pick a class, resolve to its students. Uses
+// the same read-only analytics routes (segments route with ?classId=), so the
+// resolved user IDs feed the existing admin/send endpoint just like segments.
+// ---------------------------------------------------------------------------
+export interface ClassOption { id: string; name: string; }
+export interface ResolvedClass { classId: string; count: number; userIds: string[]; }
+
+/** The list of classes (id + name) to pick from for class-wise broadcasts. */
+export async function fetchClasses(): Promise<ClassOption[]> {
+    // The /api/analytics/classes route returns { classes: [...] } inside the
+    // standard metric envelope; getMetric unwraps the envelope for us.
+    const { classes } = await getMetric<{ classes: ClassOption[] }>("classes", EMPTY_FILTERS);
+    return classes ?? [];
+}
+
+/** Resolve a class to its concrete audience (count + user IDs). */
+export async function resolveClass(classId: string): Promise<ResolvedClass> {
+    return getSegmentsJson<ResolvedClass>(`?classId=${encodeURIComponent(classId)}`);
+}
+
 /**
  * Fetch a { userId: lastActiveISO|null } map for the Users table's "Last Active"
  * column. Read-only, admin-gated. Throws AnalyticsFetchError on failure so the

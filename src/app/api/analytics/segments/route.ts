@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/require-admin";
 import { AnalyticsDbError, isDbConfigured } from "@/lib/db";
-import { SEGMENTS, getSegmentUserIds, isSegmentKey } from "@/lib/analytics/segments";
+import { SEGMENTS, getSegmentUserIds, getClassUserIds, isSegmentKey } from "@/lib/analytics/segments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/analytics/segments
  *   (no param)          → { segments: [{key,label,description}, …] }  (catalogue)
- *   ?segment=<key>      → { segment, count, userIds }                 (resolved audience)
+ *   ?segment=<key>      → { segment, count, userIds }                 (resolved segment audience)
+ *   ?classId=<uuid>     → { classId, count, userIds }                 (resolved class-wise audience)
  *
  * Admin-gated and read-only, like the rest of the analytics routes. The returned
  * userIds are fed to the existing POST /notifications/admin/send endpoint.
@@ -18,14 +19,16 @@ export async function GET(req: Request) {
     const gate = await requireAdmin(req);
     if (!gate.ok) return gate.response;
 
-    const segment = new URL(req.url).searchParams.get("segment");
+    const params = new URL(req.url).searchParams;
+    const segment = params.get("segment");
+    const classId = params.get("classId");
 
-    // No segment → return the catalogue (works even without a DB connection).
-    if (!segment) {
+    // No param → return the catalogue (works even without a DB connection).
+    if (!segment && !classId) {
         return NextResponse.json({ segments: SEGMENTS }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    if (!isSegmentKey(segment)) {
+    if (segment && !isSegmentKey(segment)) {
         return NextResponse.json({ error: "unknown_segment", detail: `Unknown segment '${segment}'.` }, { status: 400 });
     }
 
@@ -37,7 +40,16 @@ export async function GET(req: Request) {
     }
 
     try {
-        const userIds = await getSegmentUserIds(segment);
+        // Class-wise resolution — all STUDENT users in the picked class.
+        if (classId) {
+            const userIds = await getClassUserIds(classId);
+            return NextResponse.json(
+                { classId, count: userIds.length, userIds },
+                { headers: { "Cache-Control": "no-store" } },
+            );
+        }
+
+        const userIds = await getSegmentUserIds(segment as Parameters<typeof getSegmentUserIds>[0]);
         return NextResponse.json(
             { segment, count: userIds.length, userIds },
             { headers: { "Cache-Control": "no-store" } },

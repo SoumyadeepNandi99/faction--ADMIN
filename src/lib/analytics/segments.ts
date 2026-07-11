@@ -60,6 +60,21 @@ export function isSegmentKey(v: string): v is SegmentKey {
 }
 
 const STUDENTS = `u.role = 'STUDENT'`;
+
+/**
+ * Class-wise audience: STUDENT user IDs whose class_id matches the given class.
+ * Same backend-free pattern as the segments above — the resolved IDs are fed to
+ * the existing POST /notifications/admin/send endpoint. `classId` is a UUID from
+ * the `class` table (see getClasses); it is passed as a bound parameter, never
+ * interpolated into SQL.
+ */
+export async function getClassUserIds(classId: string): Promise<string[]> {
+    const rows = await readonlyQuery<{ id: string }>(
+        `SELECT u.id FROM users u WHERE ${STUDENTS} AND u.class_id = $1`,
+        [classId],
+    );
+    return rows.map(r => r.id);
+}
 const IST_TODAY = `((now() + ${IST_SHIFT})::date)`;
 
 /**
