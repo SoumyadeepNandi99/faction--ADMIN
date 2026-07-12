@@ -307,6 +307,14 @@ export interface TimeSpentData {
         avgMinsPerActiveDay: number;
         testHours: number;
     };
+    /** Per-IST-day series powering the daily / cumulative chart. */
+    series: {
+        day: string;
+        hours: number;
+        solved: number;
+        students: number;
+        cumStudents: number; // distinct students seen up to this day (never double-counts)
+    }[];
 }
 
 export interface ClassesData { classes: { id: string; name: string }[]; }

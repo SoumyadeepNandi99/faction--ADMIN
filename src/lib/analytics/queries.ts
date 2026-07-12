@@ -1221,11 +1221,19 @@ function formatExam(v: string): string {
 // here and in the Most-Active table agree. Because the data is server-side and
 // keyed by user_id, it already aggregates across ALL of a student's devices.
 //
-// Why customtestanalysis.total_time_spent is NOT added: custom-test questions
-// also write rows into question_attempts (verified — every sampled test has
-// attempts inside its window, and ~27h of the 31h of reported test time is
-// already present as attempt time). Adding it would double-count. Test time is
-// therefore reported as a SUBSET, for context only.
+// SCOPE: this already covers EVERY question screen — practice arena, custom
+// tests, contests and POTD. All of them write rows into question_attempts, so
+// their time is counted here exactly once. Verified against each feature's own
+// table:
+//   • contests — summed attempt time 1081.4s vs contestleaderboard.total_time
+//     1081.2s (a match: that column is derived from the same attempts)
+//   • custom tests — every sampled test has attempts inside its window (~27h of
+//     the 31h of reported test time is already there as attempt time)
+//   • POTD — 4,351 attempts / ~90h captured
+//   • scholarships — no timed results yet, but the same question_attempts path
+// So we deliberately do NOT add contestleaderboard.total_time,
+// customtestanalysis.total_time_spent or scholarship_results.time_taken on top:
+// that would double-count. Test time is reported as a SUBSET, for context only.
 
 export interface TimeSpentSummary {
     totalHours: number;
@@ -1290,4 +1298,76 @@ export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpen
         avgMinsPerActiveDay: +(num(row?.avg_secs_per_day) / 60).toFixed(1),
         testHours: +(num(testRow?.test_secs) / 3600).toFixed(1),
     };
+}
+
+/**
+ * Daily series for the Time Spent chart: for each IST day in the range, the
+ * hours solved, questions solved, and distinct active students. The client
+ * derives the cumulative view by running-summing these (hours/questions
+ * accumulate; students are a daily distinct count, so its cumulative view is a
+ * running count of FIRST-seen students, computed server-side below).
+ *
+ * Same clamped source as getTimeSpentSummary, so the chart and the KPI cards
+ * agree. Includes contest + custom-test time: those questions write rows into
+ * question_attempts too (verified), so they are already counted here exactly
+ * once.
+ */
+export interface TimeSeriesPoint {
+    day: string;      // YYYY-MM-DD (IST)
+    hours: number;
+    solved: number;
+    students: number;
+    cumStudents: number; // distinct students seen up to and including this day
+}
+
+export async function getTimeSpentSeries(f: AnalyticsFilters): Promise<TimeSeriesPoint[]> {
+    const eff = withDefaultRange(f, 30);
+    const scope = userScope(eff, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const day = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(day, eff, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+
+    const rows = await readonlyQuery<{
+        day: string; secs: string; solved: string; students: string; cum_students: string;
+    }>(
+        `WITH att AS (
+           SELECT ${day} AS d, a.user_id,
+                  LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC}) AS t,
+                  a.is_correct
+           FROM question_attempts a
+           JOIN users u ON u.id = a.user_id
+           WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
+         ),
+         per_day AS (
+           SELECT d,
+                  sum(t)                                  AS secs,
+                  count(*) FILTER (WHERE is_correct)      AS solved,
+                  count(DISTINCT user_id)                 AS students
+           FROM att GROUP BY d
+         ),
+         -- Cumulative distinct students: count each student on their FIRST active
+         -- day, then running-sum, so the cumulative line never double-counts.
+         firsts AS (
+           SELECT user_id, min(d) AS first_d FROM att GROUP BY user_id
+         ),
+         new_per_day AS (
+           SELECT first_d AS d, count(*) AS newcomers FROM firsts GROUP BY first_d
+         )
+         SELECT to_char(p.d, 'YYYY-MM-DD') AS day,
+                p.secs, p.solved, p.students,
+                sum(COALESCE(nd.newcomers, 0)) OVER (ORDER BY p.d) AS cum_students
+         FROM per_day p
+         LEFT JOIN new_per_day nd ON nd.d = p.d
+         ORDER BY p.d`,
+        [...scope.params, ...range.params],
+    );
+
+    return rows.map(r => ({
+        day: r.day,
+        hours: +(num(r.secs) / 3600).toFixed(2),
+        solved: num(r.solved),
+        students: num(r.students),
+        cumStudents: num(r.cum_students),
+    }));
 }

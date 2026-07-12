@@ -838,20 +838,63 @@ function LabeledBar({ label, value }: { label: string; value: number | null }) {
 // `src/components/leaderboard/most-active-users.tsx`. It still reads the same
 // `useActiveUsers` hook / `/api/analytics/active-users` route.
 
+
+// ===========================================================================
+// TIME SPENT
+// ===========================================================================
 /**
- * Time Spent — aggregate time-on-task.
+ * Time Spent — aggregate time-on-task, plus a daily/cumulative chart.
  *
- * Sourced from `question_attempts.time_taken` (server-side, keyed by user), so it
- * already sums across every device a student uses. It measures time spent SOLVING,
- * not total app screentime: the data has no session/app-open signal, so idle and
- * browsing time cannot be counted. Test time is a subset of the total, shown for
- * context, never added on top (test questions are already counted once).
+ * Source: `question_attempts.time_taken` (server-side, keyed by user_id), so it
+ * already aggregates across every device a student uses.
+ *
+ * It ALREADY INCLUDES contests, custom tests and scholarships: questions answered
+ * in those flows write rows into `question_attempts` too (verified — a contest's
+ * summed attempt time matches `contestleaderboard.total_time` to within a
+ * second). So no per-feature time is added on top; that would double-count.
+ *
+ * The one thing it is not: total app screentime. The data has no session /
+ * app-open signal, so idle, browsing and video time cannot be counted.
  */
+type TimeMetric = "hours" | "solved" | "students";
+type TimeMode = "daily" | "cumulative";
+
+const TIME_METRICS: { key: TimeMetric; label: string }[] = [
+    { key: "hours", label: "Time" },
+    { key: "solved", label: "Questions" },
+    { key: "students", label: "Students" },
+];
+
 export function TimeSpentSection({ filters }: { filters: Filters }) {
     const { data, error, loading } = useTimeSpent(filters);
     const s = data?.summary;
-    const testShare =
-        s && s.totalHours > 0 ? Math.round((s.testHours / s.totalHours) * 100) : null;
+    const series = useMemo(() => data?.series ?? [], [data]);
+
+    const [metric, setMetric] = useState<TimeMetric>("hours");
+    const [mode, setMode] = useState<TimeMode>("daily");
+
+    const testShare = s && s.totalHours > 0 ? Math.round((s.testHours / s.totalHours) * 100) : null;
+    const labels = useMemo(() => series.map(p => p.day.slice(5)), [series]);
+
+    // Daily values for the selected metric.
+    const daily = useMemo(
+        () => series.map(p => (metric === "hours" ? p.hours : metric === "solved" ? p.solved : p.students)),
+        [series, metric],
+    );
+
+    // Cumulative values. Hours and questions are running sums. Students CANNOT be
+    // summed (the same student is active on many days) — the server sends
+    // `cumStudents`, a running count of distinct students first seen by that day.
+    const cumulative = useMemo(() => {
+        if (metric === "students") return series.map(p => p.cumStudents);
+        return daily.map((_, i) => +daily.slice(0, i + 1).reduce((a, b) => a + b, 0).toFixed(1));
+    }, [series, daily, metric]);
+
+    const unit = metric === "hours" ? "hours" : metric === "solved" ? "questions" : "students";
+    const bars = useMemo(
+        () => series.map((p, i) => ({ label: p.day.slice(5), count: daily[i] })),
+        [series, daily],
+    );
 
     return (
         <Section
@@ -893,10 +936,75 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
                 />
             </KpiStrip>
 
+            <Card
+                title="Activity Over Time"
+                info={EXPLAIN.timeSeriesChart}
+                subtitle={
+                    mode === "cumulative"
+                        ? `Cumulative ${unit} (growth)`
+                        : `${unit[0].toUpperCase()}${unit.slice(1)} per day (IST)`
+                }
+                right={
+                    <div className="flex items-center gap-2">
+                        {/* Metric switch: time / questions / students */}
+                        <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
+                            {TIME_METRICS.map(m => (
+                                <button
+                                    key={m.key}
+                                    onClick={() => setMetric(m.key)}
+                                    className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                                        metric === m.key
+                                            ? "bg-background text-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                >
+                                    {m.label}
+                                </button>
+                            ))}
+                        </div>
+                        {/* Daily vs cumulative */}
+                        <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
+                            {(["daily", "cumulative"] as const).map(m => (
+                                <button
+                                    key={m}
+                                    onClick={() => setMode(m)}
+                                    className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
+                                        mode === m
+                                            ? "bg-background text-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                >
+                                    {m}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                }
+            >
+                {loading ? (
+                    <ChartSkeleton />
+                ) : error ? (
+                    <ErrorState {...errParts(error)} />
+                ) : series.length >= 2 ? (
+                    mode === "cumulative" ? (
+                        <AreaChart points={cumulative} labels={labels} valueLabel={`total ${unit}`} />
+                    ) : (
+                        <BarChart
+                            data={bars}
+                            color="var(--color-accent-blue)"
+                            labelEvery={Math.max(1, Math.ceil(bars.length / 12))}
+                        />
+                    )
+                ) : (
+                    <EmptyState message="Not enough activity history to plot." />
+                )}
+            </Card>
+
             <p className="text-xs text-muted-foreground px-1">
                 Measured from the time recorded against each question attempt, so it combines every
-                device a student uses. It counts time spent solving, not total time the app is open:
-                the app records no session signal, so idle, browsing and video time are not included.
+                device a student uses and already includes contests, custom tests and scholarships.
+                It counts time spent solving, not total time the app is open: the app records no
+                session signal, so idle, browsing and video time are not included.
             </p>
         </Section>
     );

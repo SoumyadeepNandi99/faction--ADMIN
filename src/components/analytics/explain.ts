@@ -8,7 +8,9 @@
 export const EXPLAIN = {
     // Time spent
     totalTimeSpent:
-        "Total hours students spent actively solving questions, added up across every student and every device they used. It is measured on the server from the time recorded against each question attempt, so a student who studies on a phone and a tablet still shows one combined number. Note this is time on task while solving, not total time the app was open: idle time, browsing chapters and watching videos are not counted, because the app does not record them.",
+        "Total hours students spent actively solving questions, added up across every student and every device they used. It is measured on the server from the time recorded against each question attempt, so a student who studies on a phone and a tablet still shows one combined number, and practice, contests, custom tests and scholarships are all included. Note this is time on task while solving, not total time the app was open: idle time, browsing chapters and watching videos are not counted, because the app does not record them.",
+    timeSeriesChart:
+        "Activity per day, or added up over time. Switch between time, questions solved and active students, and between the daily view and the cumulative view. Daily shows the rhythm and the spikes, for example the day a new event launched. Cumulative shows the growth curve. For students the cumulative line counts each student once, on the first day they were active, so it never double counts someone who studies on many days.",
     timeActiveStudents:
         "How many students contributed any solving time in the selected range. This is the denominator for the averages beside it, so you can tell whether a high average comes from many students or just a few.",
     avgTimePerStudent:
