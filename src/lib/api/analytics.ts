@@ -142,6 +142,38 @@ export async function resolveClass(classId: string): Promise<ResolvedClass> {
     return getSegmentsJson<ResolvedClass>(`?classId=${encodeURIComponent(classId)}`);
 }
 
+// ---------------------------------------------------------------------------
+// Faction Legends — per-student challenge progress (correct solves since the
+// event launched, scoped to each student's stream subjects). Read-only.
+// ---------------------------------------------------------------------------
+export type LegendsStream = "JEE" | "NEET" | "FOUNDATION";
+export interface LegendsProgressRow {
+    userId: string;
+    name: string | null;
+    className: string | null;
+    stream: LegendsStream;
+    progress: number;
+    target: number;
+    pct: number;
+}
+
+/** Fetch Legends progress rows; pass a stream to filter, or "" for all. */
+export async function fetchLegendsProgress(stream?: string): Promise<LegendsProgressRow[]> {
+    const qs = stream ? `?stream=${encodeURIComponent(stream)}` : "";
+    const res = await fetch(`/api/analytics/legends${qs}`, { headers: { ...authHeader() }, cache: "no-store" });
+    let body: unknown = null;
+    try {
+        body = await res.json();
+    } catch {
+        /* non-JSON */
+    }
+    if (!res.ok) {
+        const err = body as { error?: string; detail?: string } | null;
+        throw new AnalyticsFetchError(err?.error ?? "http_error", err?.detail ?? res.statusText, res.status);
+    }
+    return (body as { data: { rows: LegendsProgressRow[] } }).data.rows ?? [];
+}
+
 /**
  * Fetch a { userId: lastActiveISO|null } map for the Users table's "Last Active"
  * column. Read-only, admin-gated. Throws AnalyticsFetchError on failure so the

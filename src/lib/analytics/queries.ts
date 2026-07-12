@@ -1073,6 +1073,117 @@ export async function getClasses(): Promise<ClassOption[]> {
     return rows;
 }
 
+// ===========================================================================
+// Faction Legends — challenge progress per student.
+//
+// The in-app Legends progress bar shows "correct questions solved since you
+// started the challenge", scoped to the student's stream subjects:
+//   JEE  (JEE_MAINS/JEE_ADVANCED) → Physics + Chemistry + Maths   · target 300
+//   NEET (NEET)                   → Physics + Chemistry + Biology  · target 600
+//   Foundation (OLYMPIAD)         → all four subjects              · target 400
+//
+// That "started" baseline is a snapshot the app takes on the student's DEVICE
+// (AsyncStorage) the first time they open the event — it is never sent to the
+// backend, so we CANNOT read the exact per-student number here. We reconstruct
+// an equivalent: correct solves since the event went live in production
+// (LEGENDS_LAUNCH). Because the event was only reachable from launch, no student
+// could have a baseline earlier than that, so this matches the in-app number
+// almost exactly — the only drift is the few hours between launch and when each
+// student first opened the event (and only if they solved during that window).
+//
+// Read-only, backend-free (mirrors the other analytics queries). Subject of an
+// attempt is reached via question.topic_id → topic → chapter → subject.
+// ===========================================================================
+
+// Legends event went to production ~2 AM IST on 2026-07-12.
+// Stored in UTC for the attempted_at comparison (IST 02:00 = UTC 2026-07-11 20:30).
+const LEGENDS_LAUNCH_UTC = "2026-07-11 20:30:00";
+
+const LEGENDS_TARGET: Record<string, number> = { JEE: 300, NEET: 600, FOUNDATION: 400 };
+
+export interface LegendsProgressRow {
+    userId: string;
+    name: string | null;
+    className: string | null;
+    stream: "JEE" | "NEET" | "FOUNDATION";
+    progress: number;
+    target: number;
+    pct: number; // 0..100, capped at 100
+}
+
+/**
+ * Per-student Legends challenge progress. Optionally filtered to one stream
+ * ("JEE" | "NEET" | "FOUNDATION"); omit for all streams. Only students who have
+ * solved at least one in-stream question since launch are returned (progress > 0),
+ * sorted by progress descending.
+ */
+export async function getLegendsProgress(stream?: string): Promise<LegendsProgressRow[]> {
+    const wantStream =
+        stream === "JEE" || stream === "NEET" || stream === "FOUNDATION" ? stream : null;
+
+    const rows = await readonlyQuery<{
+        user_id: string;
+        name: string | null;
+        class_name: string | null;
+        stream: string;
+        progress: string;
+    }>(
+        `WITH per_user AS (
+           SELECT u.id, u.name, cl.name AS class_name,
+             CASE
+               WHEN u.target_exams::text ILIKE '%NEET%'     THEN 'NEET'
+               WHEN u.target_exams::text ILIKE '%JEE%'      THEN 'JEE'
+               WHEN u.target_exams::text ILIKE '%OLYMPIAD%' THEN 'FOUNDATION'
+               ELSE 'JEE'
+             END AS stream
+           FROM users u
+           LEFT JOIN class cl ON cl.id = u.class_id
+           WHERE ${STUDENTS}
+         ),
+         solves AS (
+           SELECT a.user_id, sub.subject_type::text AS subj
+           FROM question_attempts a
+           JOIN question q ON q.id = a.question_id
+           JOIN topic t   ON t.id = q.topic_id
+           JOIN chapter c ON c.id = t.chapter_id
+           JOIN subject sub ON sub.id = c.subject_id
+           WHERE a.is_correct AND a.attempted_at >= $1::timestamp
+         )
+         SELECT pu.id AS user_id, pu.name, pu.class_name, pu.stream,
+           COUNT(*) FILTER (
+             WHERE (pu.stream = 'NEET'       AND s.subj IN ('PHYSICS','CHEMISTRY','BIOLOGY'))
+                OR (pu.stream = 'JEE'        AND s.subj IN ('PHYSICS','CHEMISTRY','MATHS'))
+                OR (pu.stream = 'FOUNDATION' AND s.subj IN ('PHYSICS','CHEMISTRY','MATHS','BIOLOGY'))
+           ) AS progress
+         FROM per_user pu
+         JOIN solves s ON s.user_id = pu.id
+         ${wantStream ? "WHERE pu.stream = $2" : ""}
+         GROUP BY pu.id, pu.name, pu.class_name, pu.stream
+         HAVING COUNT(*) FILTER (
+             WHERE (pu.stream = 'NEET'       AND s.subj IN ('PHYSICS','CHEMISTRY','BIOLOGY'))
+                OR (pu.stream = 'JEE'        AND s.subj IN ('PHYSICS','CHEMISTRY','MATHS'))
+                OR (pu.stream = 'FOUNDATION' AND s.subj IN ('PHYSICS','CHEMISTRY','MATHS','BIOLOGY'))
+           ) > 0
+         ORDER BY progress DESC`,
+        wantStream ? [LEGENDS_LAUNCH_UTC, wantStream] : [LEGENDS_LAUNCH_UTC],
+    );
+
+    return rows.map(r => {
+        const s = (r.stream as LegendsProgressRow["stream"]) ?? "JEE";
+        const progress = num(r.progress);
+        const target = LEGENDS_TARGET[s] ?? 300;
+        return {
+            userId: r.user_id,
+            name: r.name,
+            className: r.class_name,
+            stream: s,
+            progress,
+            target,
+            pct: Math.min(100, Math.round((progress / target) * 100)),
+        };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

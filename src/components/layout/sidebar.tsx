@@ -21,6 +21,7 @@ import {
     CalendarClock,
     GalleryHorizontalEnd,
     BarChart3,
+    Swords,
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { confirmAction } from "@/components/ui/confirm-modal";
@@ -38,6 +39,7 @@ const navigation = [
     { name: "Notes", href: "/notes", icon: NotebookText },
     { name: "Assessments", href: "/assessments", icon: Award },
     { name: "Leaderboard", href: "/leaderboard", icon: Trophy },
+    { name: "Legends Progress", href: "/legends", icon: Swords },
     { name: "YouTube Videos", href: "/videos", icon: Youtube },
     { name: "Badges", href: "/badges", icon: BadgeCheck },
     { name: "PYQ Manager", href: "/pyq", icon: GraduationCap },
