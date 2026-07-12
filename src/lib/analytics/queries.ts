@@ -1248,6 +1248,21 @@ export interface TimeSpentSummary {
     medianMinsPerStudent: number;
     avgMinsPerActiveDay: number;
     testHours: number; // subset of the above, shown for context — never summed in
+
+    /**
+     * Is the average student studying MORE than before?
+     *
+     * Compares avg minutes per ACTIVE student in the selected window against the
+     * equally-sized window immediately before it (the same convention the
+     * Engagement section uses for signup growth).
+     *
+     * We divide by active students in EACH window rather than by the whole base,
+     * so the trend answers "is a student who shows up studying longer?" and is not
+     * an artefact of the population growing or shrinking. A signup surge would
+     * otherwise crater this number without anyone studying any less.
+     */
+    prevAvgMinsPerStudent: number | null; // null when there is no prior window
+    avgMinsTrendPct: number | null;       // % change vs the previous window
 }
 
 export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpentSummary> {
@@ -1309,6 +1324,84 @@ export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpen
         uScope.params,
     );
 
+    // ── Trend: is the average student studying more than before? ──────────────
+    // Compare avg minutes per ACTIVE student in [from, to] against the equally
+    // sized window immediately before it. With no explicit range we default to
+    // the last 7 IST days vs the 7 before, which is the shortest window that
+    // smooths out weekday/weekend swing.
+    //
+    // Both windows divide by the students active IN THAT WINDOW, so a growing (or
+    // shrinking) user base does not by itself move the number: it answers "is a
+    // student who shows up studying longer?", not "did more people show up?".
+    const trScope = userScope(f, 1);
+    const trScopeAnd = trScope.sql ? `AND ${trScope.sql}` : "";
+    let i = trScope.params.length + 1;
+    const trParams: unknown[] = [...trScope.params];
+
+    // Window bounds: explicit range if given, else a trailing 7-day window.
+    let curFrom: string, curTo: string;
+    if (f.from && f.to) {
+        curFrom = `$${i++}::date`;
+        curTo = `$${i++}::date`;
+        trParams.push(f.from, f.to);
+    } else if (f.to) {
+        curTo = `$${i++}::date`;
+        trParams.push(f.to);
+        curFrom = `(${curTo} - 6)`;
+    } else if (f.from) {
+        curFrom = `$${i++}::date`;
+        trParams.push(f.from);
+        curTo = IST_TODAY;
+    } else {
+        curTo = IST_TODAY;
+        curFrom = `(${IST_TODAY} - 6)`;
+    }
+
+    const trendRow = await readonlyQueryOne<{
+        cur_avg_secs: string | null;
+        prev_avg_secs: string | null;
+    }>(
+        `WITH att AS (
+           SELECT a.user_id,
+                  ${day} AS d,
+                  LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC}) AS t
+           FROM question_attempts a
+           JOIN users u ON u.id = a.user_id
+           WHERE ${STUDENTS} ${trScopeAnd}
+         ),
+         w AS (
+           SELECT ${curFrom} AS cf, ${curTo} AS ct
+         ),
+         -- The previous window: same length, ending the day before the current one.
+         pw AS (
+           SELECT (w.cf - (w.ct - w.cf + 1)) AS pf, (w.cf - 1) AS pt FROM w
+         ),
+         cur AS (
+           SELECT att.user_id, sum(att.t) AS secs
+           FROM att, w
+           WHERE att.d >= w.cf AND att.d <= w.ct
+           GROUP BY att.user_id
+         ),
+         prev AS (
+           SELECT att.user_id, sum(att.t) AS secs
+           FROM att, pw
+           WHERE att.d >= pw.pf AND att.d <= pw.pt
+           GROUP BY att.user_id
+         )
+         SELECT (SELECT avg(secs) FROM cur)  AS cur_avg_secs,
+                (SELECT avg(secs) FROM prev) AS prev_avg_secs`,
+        trParams,
+    );
+
+    const curAvgMins = trendRow?.cur_avg_secs != null ? +(num(trendRow.cur_avg_secs) / 60).toFixed(1) : 0;
+    const prevAvgMins = trendRow?.prev_avg_secs != null ? +(num(trendRow.prev_avg_secs) / 60).toFixed(1) : null;
+    // Guard the divide: with no prior activity there is no trend to report (a
+    // "+100%" against a zero baseline would be noise, not signal).
+    const trendPct =
+        prevAvgMins != null && prevAvgMins > 0
+            ? round1((100 * (curAvgMins - prevAvgMins)) / prevAvgMins)
+            : null;
+
     return {
         totalHours: +(num(row?.total_secs) / 3600).toFixed(1),
         activeStudents: num(row?.active_students),
@@ -1317,6 +1410,8 @@ export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpen
         medianMinsPerStudent: +(num(row?.median_secs) / 60).toFixed(1),
         avgMinsPerActiveDay: +(num(row?.avg_secs_per_day) / 60).toFixed(1),
         testHours: +(num(testRow?.test_secs) / 3600).toFixed(1),
+        prevAvgMinsPerStudent: prevAvgMins,
+        avgMinsTrendPct: trendPct,
     };
 }
 

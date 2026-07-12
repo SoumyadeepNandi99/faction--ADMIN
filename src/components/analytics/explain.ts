@@ -17,6 +17,8 @@ export const EXPLAIN = {
         "The average solving time per active student in the range, with the median shown alongside. The median is usually the more honest figure: a handful of very heavy users pull the average up, so when the two are far apart most students are studying less than the average suggests.",
     avgTimePerActiveDay:
         "On a day a student actually studies, this is how long they study for. It separates depth from frequency: a student can have a long streak of short days, and this number is what tells you which one you are looking at.",
+    avgTimeTrend:
+        "Whether the average student is studying more or less than before. It compares the average solving time per active student in the selected window against the window of the same length immediately before it, so with the default view it is this week against last week. Both halves divide by the students who were active in that window, not by the whole roster, which matters: if it divided by everyone, a wave of new signups would sink the number even though nobody studied any less. A rising figure means the students who show up are going deeper, which is the harder and more valuable kind of growth.",
     testTimeShare:
         "How much of the solving time happened inside custom tests, shown as a share of the total. It is a slice of the total above and is never added on top of it, because questions answered during a test are already counted once in the overall time.",
 

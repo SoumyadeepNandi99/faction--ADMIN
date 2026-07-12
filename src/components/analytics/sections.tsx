@@ -23,11 +23,13 @@ import {
     Hourglass,
     Layers,
     MessageSquare,
+    Minus,
     Repeat,
     Rocket,
     Smartphone,
     Star,
     Swords,
+    TrendingDown,
     TrendingUp,
     Trophy,
     UserPlus,
@@ -856,45 +858,35 @@ function LabeledBar({ label, value }: { label: string; value: number | null }) {
  * The one thing it is not: total app screentime. The data has no session /
  * app-open signal, so idle, browsing and video time cannot be counted.
  */
-type TimeMetric = "hours" | "solved" | "students";
 type TimeMode = "daily" | "cumulative";
-
-const TIME_METRICS: { key: TimeMetric; label: string }[] = [
-    { key: "hours", label: "Time" },
-    { key: "solved", label: "Questions" },
-    { key: "students", label: "Students" },
-];
 
 export function TimeSpentSection({ filters }: { filters: Filters }) {
     const { data, error, loading } = useTimeSpent(filters);
     const s = data?.summary;
     const series = useMemo(() => data?.series ?? [], [data]);
 
-    const [metric, setMetric] = useState<TimeMetric>("hours");
+    // Time only. Questions-solved and active-students are deliberately NOT offered
+    // here — the Engagement and Learning Outcomes sections already chart both, and
+    // duplicating them invites two charts of the same thing drifting apart.
     const [mode, setMode] = useState<TimeMode>("daily");
 
     const testShare = s && s.totalHours > 0 ? Math.round((s.testHours / s.totalHours) * 100) : null;
     const labels = useMemo(() => series.map(p => p.day.slice(5)), [series]);
 
-    // Daily values for the selected metric.
-    const daily = useMemo(
-        () => series.map(p => (metric === "hours" ? p.hours : metric === "solved" ? p.solved : p.students)),
-        [series, metric],
+    const daily = useMemo(() => series.map(p => p.hours), [series]);
+    const cumulative = useMemo(
+        () => daily.map((_, i) => +daily.slice(0, i + 1).reduce((a, b) => a + b, 0).toFixed(1)),
+        [daily],
     );
-
-    // Cumulative values. Hours and questions are running sums. Students CANNOT be
-    // summed (the same student is active on many days) — the server sends
-    // `cumStudents`, a running count of distinct students first seen by that day.
-    const cumulative = useMemo(() => {
-        if (metric === "students") return series.map(p => p.cumStudents);
-        return daily.map((_, i) => +daily.slice(0, i + 1).reduce((a, b) => a + b, 0).toFixed(1));
-    }, [series, daily, metric]);
-
-    const unit = metric === "hours" ? "hours" : metric === "solved" ? "questions" : "students";
     const bars = useMemo(
         () => series.map((p, i) => ({ label: p.day.slice(5), count: daily[i] })),
         [series, daily],
     );
+
+    // Trend direction for the "is a student studying more?" card.
+    const trend = s?.avgMinsTrendPct ?? null;
+    const trendUp = trend != null && trend > 0;
+    const trendFlat = trend != null && trend === 0;
 
     return (
         <Section
@@ -902,7 +894,7 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
             description="Time students spend actively solving, combined across all their devices"
             icon={<Clock className="h-5 w-5" />}
         >
-            <KpiStrip loading={loading} error={error} count={4}>
+            <KpiStrip loading={loading} error={error} count={5}>
                 <KpiCard
                     label="Total Time Spent"
                     value={humanHours(s?.totalHours)}
@@ -927,9 +919,29 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
                     info={EXPLAIN.avgTimePerActiveDay}
                 />
                 <KpiCard
+                    label="Study Time Trend"
+                    value={trend == null ? "—" : `${trend > 0 ? "+" : ""}${trend}%`}
+                    accent={trend == null || trendFlat ? "brand" : trendUp ? "brand" : "pink"}
+                    icon={
+                        trend == null || trendFlat ? (
+                            <Minus className="h-5 w-5" />
+                        ) : trendUp ? (
+                            <TrendingUp className="h-5 w-5" />
+                        ) : (
+                            <TrendingDown className="h-5 w-5" />
+                        )
+                    }
+                    sub={
+                        s?.prevAvgMinsPerStudent == null
+                            ? "no earlier period to compare"
+                            : `${kpi(s.avgMinsPerStudent)} vs ${kpi(s.prevAvgMinsPerStudent)} min before`
+                    }
+                    info={EXPLAIN.avgTimeTrend}
+                />
+                <KpiCard
                     label="Time in Tests"
                     value={humanHours(s?.testHours)}
-                    accent="pink"
+                    accent="purple"
                     icon={<Layers className="h-5 w-5" />}
                     sub={testShare === null ? "of total" : `${testShare}% of total`}
                     info={EXPLAIN.testTimeShare}
@@ -937,47 +949,24 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
             </KpiStrip>
 
             <Card
-                title="Activity Over Time"
+                title="Time Spent Over Time"
                 info={EXPLAIN.timeSeriesChart}
-                subtitle={
-                    mode === "cumulative"
-                        ? `Cumulative ${unit} (growth)`
-                        : `${unit[0].toUpperCase()}${unit.slice(1)} per day (IST)`
-                }
+                subtitle={mode === "cumulative" ? "Cumulative hours (growth)" : "Hours solved per day (IST)"}
                 right={
-                    <div className="flex items-center gap-2">
-                        {/* Metric switch: time / questions / students */}
-                        <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
-                            {TIME_METRICS.map(m => (
-                                <button
-                                    key={m.key}
-                                    onClick={() => setMetric(m.key)}
-                                    className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                                        metric === m.key
-                                            ? "bg-background text-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    {m.label}
-                                </button>
-                            ))}
-                        </div>
-                        {/* Daily vs cumulative */}
-                        <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
-                            {(["daily", "cumulative"] as const).map(m => (
-                                <button
-                                    key={m}
-                                    onClick={() => setMode(m)}
-                                    className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
-                                        mode === m
-                                            ? "bg-background text-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    {m}
-                                </button>
-                            ))}
-                        </div>
+                    <div className="inline-flex rounded-lg border border-(--card-border) bg-foreground/5 p-0.5 text-xs">
+                        {(["daily", "cumulative"] as const).map(m => (
+                            <button
+                                key={m}
+                                onClick={() => setMode(m)}
+                                className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
+                                    mode === m
+                                        ? "bg-background text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground"
+                                }`}
+                            >
+                                {m}
+                            </button>
+                        ))}
                     </div>
                 }
             >
@@ -987,7 +976,7 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
                     <ErrorState {...errParts(error)} />
                 ) : series.length >= 2 ? (
                     mode === "cumulative" ? (
-                        <AreaChart points={cumulative} labels={labels} valueLabel={`total ${unit}`} />
+                        <AreaChart points={cumulative} labels={labels} valueLabel="total hours" />
                     ) : (
                         <BarChart
                             data={bars}

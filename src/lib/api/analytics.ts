@@ -309,6 +309,10 @@ export interface TimeSpentData {
         medianMinsPerStudent: number;
         avgMinsPerActiveDay: number;
         testHours: number;
+        /** Avg mins/active student in the window immediately before this one. */
+        prevAvgMinsPerStudent: number | null;
+        /** % change in avg mins per active student vs that previous window. */
+        avgMinsTrendPct: number | null;
     };
     /** Per-IST-day series powering the daily / cumulative chart. */
     series: {
