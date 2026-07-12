@@ -8,11 +8,11 @@
 export const EXPLAIN = {
     // Time spent
     totalTimeSpent:
-        "Total hours students spent actively solving questions, added up across every student and every device they used. It is measured on the server from the time recorded against each question attempt, so a student who studies on a phone and a tablet still shows one combined number, and practice, contests, custom tests and scholarships are all included. Note this is time on task while solving, not total time the app was open: idle time, browsing chapters and watching videos are not counted, because the app does not record them.",
+        "Total hours students spent actively solving questions, added up across every student and every device they used. It is measured on the server from the time recorded against each question attempt, so a student who studies on a phone and a tablet still shows one combined number, and the practice arena, contests, custom tests and the daily question are all included. The count below it reads as studied out of total, because a student can sign up and never attempt a question: those students have no time to count. Note this is time on task while solving, not total time the app was open, since idle time, browsing chapters and watching videos are not recorded by the app.",
     timeSeriesChart:
         "Activity per day, or added up over time. Switch between time, questions solved and active students, and between the daily view and the cumulative view. Daily shows the rhythm and the spikes, for example the day a new event launched. Cumulative shows the growth curve. For students the cumulative line counts each student once, on the first day they were active, so it never double counts someone who studies on many days.",
     timeActiveStudents:
-        "How many students contributed any solving time in the selected range. This is the denominator for the averages beside it, so you can tell whether a high average comes from many students or just a few.",
+        "How many students contributed any solving time in the selected range, out of every student who matches the filters. The two numbers differ because a student can sign up and never attempt a single question, and someone who has never solved anything has no time to count. The first number is the denominator for the averages beside it, so a high average cannot be an artefact of dividing by people who never studied.",
     avgTimePerStudent:
         "The average solving time per active student in the range, with the median shown alongside. The median is usually the more honest figure: a handful of very heavy users pull the average up, so when the two are far apart most students are studying less than the average suggests.",
     avgTimePerActiveDay:

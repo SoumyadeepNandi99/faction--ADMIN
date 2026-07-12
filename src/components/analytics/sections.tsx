@@ -907,7 +907,7 @@ export function TimeSpentSection({ filters }: { filters: Filters }) {
                     label="Total Time Spent"
                     value={humanHours(s?.totalHours)}
                     icon={<Hourglass className="h-5 w-5" />}
-                    sub={`${n(s?.activeStudents)} students studied`}
+                    sub={s ? `${n(s.activeStudents)} of ${n(s.totalStudents)} students studied` : "students studied"}
                     info={EXPLAIN.totalTimeSpent}
                 />
                 <KpiCard

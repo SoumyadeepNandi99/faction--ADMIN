@@ -1237,7 +1237,13 @@ function formatExam(v: string): string {
 
 export interface TimeSpentSummary {
     totalHours: number;
+    /** Students who logged any solving time. The averages divide by THIS, not by
+     *  totalStudents: students who never attempted a question have no time, and
+     *  including them would understate the average for everyone who does study. */
     activeStudents: number;
+    /** All students matching the filters, including those who never solved. Shown
+     *  next to activeStudents so the gap (signed up but never studied) is visible. */
+    totalStudents: number;
     avgMinsPerStudent: number;
     medianMinsPerStudent: number;
     avgMinsPerActiveDay: number;
@@ -1290,9 +1296,23 @@ export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpen
         [...tScope.params, ...tRange.params],
     );
 
+    // The full student base, for the "N of M studied" sub-label. Deliberately NOT
+    // date-bounded: a student existing is not an event inside the activity window,
+    // so applying the range here would shrink the denominator to whoever happened
+    // to be active. Segment filters (class/exam/subscription) DO apply.
+    const uScope = userScope(f, 1);
+    const uScopeAnd = uScope.sql ? `AND ${uScope.sql}` : "";
+    const totalRow = await readonlyQueryOne<{ total_students: string }>(
+        `SELECT count(*) AS total_students
+         FROM users u
+         WHERE ${STUDENTS} ${uScopeAnd}`,
+        uScope.params,
+    );
+
     return {
         totalHours: +(num(row?.total_secs) / 3600).toFixed(1),
         activeStudents: num(row?.active_students),
+        totalStudents: num(totalRow?.total_students),
         avgMinsPerStudent: +(num(row?.avg_secs) / 60).toFixed(1),
         medianMinsPerStudent: +(num(row?.median_secs) / 60).toFixed(1),
         avgMinsPerActiveDay: +(num(row?.avg_secs_per_day) / 60).toFixed(1),

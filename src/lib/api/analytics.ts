@@ -301,7 +301,10 @@ export interface ActiveUsersData {
 export interface TimeSpentData {
     summary: {
         totalHours: number;
+        /** Students who logged solving time (the divisor for the averages). */
         activeStudents: number;
+        /** All students matching the filters, including those who never solved. */
+        totalStudents: number;
         avgMinsPerStudent: number;
         medianMinsPerStudent: number;
         avgMinsPerActiveDay: number;
