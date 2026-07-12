@@ -11,6 +11,7 @@ import {
     LearningOutcomesSection,
     MonetizationSection,
     StreakSection,
+    TimeSpentSection,
 } from "@/components/analytics/sections";
 import { LazyMount } from "@/components/analytics/primitives";
 import { useClasses } from "@/components/analytics/data";
@@ -58,6 +59,9 @@ export default function AnalyticsPage() {
 
             <EngagementSection filters={filters} />
 
+            <LazyMount>
+                <TimeSpentSection filters={filters} />
+            </LazyMount>
             <LazyMount>
                 <ActivationSection filters={filters} />
             </LazyMount>

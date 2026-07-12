@@ -23,6 +23,7 @@ import {
     type MonetizationData,
     type OutcomesData,
     type StreaksData,
+    type TimeSpentData,
 } from "@/lib/api/analytics";
 
 const OPTS = {
@@ -45,6 +46,7 @@ export const useFeatures = (f: Filters) => useMetric<FeaturesData>("features", "
 export const useOutcomes = (f: Filters) => useMetric<OutcomesData>("outcomes", "outcomes", f);
 export const useMonetization = (f: Filters) => useMetric<MonetizationData>("monetization", "monetization", f);
 export const useActiveUsers = (f: Filters) => useMetric<ActiveUsersData>("active-users", "active-users", f);
+export const useTimeSpent = (f: Filters) => useMetric<TimeSpentData>("time-spent", "time-spent", f);
 
 export function useClasses() {
     const { data, error, isLoading } = useSWR<ClassesData>("analytics:classes", () => getMetric<ClassesData>("classes", { from: "", to: "", classId: "", examTypes: [], subscriptionType: "" }), {

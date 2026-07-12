@@ -18,6 +18,9 @@ import {
     Flame,
     Globe,
     GraduationCap,
+    Clock,
+    Gauge,
+    Hourglass,
     Layers,
     MessageSquare,
     Repeat,
@@ -50,6 +53,7 @@ import {
     useMonetization,
     useOutcomes,
     useStreaks,
+    useTimeSpent,
 } from "./data";
 import { AnalyticsFetchError, type Filters } from "@/lib/api/analytics";
 import { formatDate } from "@/lib/datetime";
@@ -833,3 +837,67 @@ function LabeledBar({ label, value }: { label: string; value: number | null }) {
 // into the Leaderboard module — see
 // `src/components/leaderboard/most-active-users.tsx`. It still reads the same
 // `useActiveUsers` hook / `/api/analytics/active-users` route.
+
+/**
+ * Time Spent — aggregate time-on-task.
+ *
+ * Sourced from `question_attempts.time_taken` (server-side, keyed by user), so it
+ * already sums across every device a student uses. It measures time spent SOLVING,
+ * not total app screentime: the data has no session/app-open signal, so idle and
+ * browsing time cannot be counted. Test time is a subset of the total, shown for
+ * context, never added on top (test questions are already counted once).
+ */
+export function TimeSpentSection({ filters }: { filters: Filters }) {
+    const { data, error, loading } = useTimeSpent(filters);
+    const s = data?.summary;
+    const testShare =
+        s && s.totalHours > 0 ? Math.round((s.testHours / s.totalHours) * 100) : null;
+
+    return (
+        <Section
+            title="Time Spent"
+            description="Time students spend actively solving, combined across all their devices"
+            icon={<Clock className="h-5 w-5" />}
+        >
+            <KpiStrip loading={loading} error={error} count={4}>
+                <KpiCard
+                    label="Total Time Spent"
+                    value={humanHours(s?.totalHours)}
+                    icon={<Hourglass className="h-5 w-5" />}
+                    sub={`${n(s?.activeStudents)} students studied`}
+                    info={EXPLAIN.totalTimeSpent}
+                />
+                <KpiCard
+                    label="Avg / Median per Student"
+                    value={`${kpi(s?.avgMinsPerStudent)} / ${kpi(s?.medianMinsPerStudent)}`}
+                    accent="blue"
+                    icon={<Gauge className="h-5 w-5" />}
+                    sub="minutes"
+                    info={EXPLAIN.avgTimePerStudent}
+                />
+                <KpiCard
+                    label="Avg per Active Day"
+                    value={kpi(s?.avgMinsPerActiveDay)}
+                    accent="purple"
+                    icon={<Activity className="h-5 w-5" />}
+                    sub="minutes on a day they study"
+                    info={EXPLAIN.avgTimePerActiveDay}
+                />
+                <KpiCard
+                    label="Time in Tests"
+                    value={humanHours(s?.testHours)}
+                    accent="pink"
+                    icon={<Layers className="h-5 w-5" />}
+                    sub={testShare === null ? "of total" : `${testShare}% of total`}
+                    info={EXPLAIN.testTimeShare}
+                />
+            </KpiStrip>
+
+            <p className="text-xs text-muted-foreground px-1">
+                Measured from the time recorded against each question attempt, so it combines every
+                device a student uses. It counts time spent solving, not total time the app is open:
+                the app records no session signal, so idle, browsing and video time are not included.
+            </p>
+        </Section>
+    );
+}

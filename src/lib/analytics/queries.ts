@@ -1210,3 +1210,84 @@ const EXAM_LABELS: Record<string, string> = {
 function formatExam(v: string): string {
     return EXAM_LABELS[v] ?? v.replace(/_/g, " ");
 }
+
+
+// ── Time spent (aggregate) ───────────────────────────────────────────────────
+// Headline totals for the "Time Spent" KPI row. The per-student breakdown is
+// already served by getMostActiveUsers() above — this only adds the aggregate.
+//
+// Source: question_attempts.time_taken (seconds, 100% populated), clamped per
+// attempt by PER_ATTEMPT_CAP_SEC exactly like getMostActiveUsers, so the numbers
+// here and in the Most-Active table agree. Because the data is server-side and
+// keyed by user_id, it already aggregates across ALL of a student's devices.
+//
+// Why customtestanalysis.total_time_spent is NOT added: custom-test questions
+// also write rows into question_attempts (verified — every sampled test has
+// attempts inside its window, and ~27h of the 31h of reported test time is
+// already present as attempt time). Adding it would double-count. Test time is
+// therefore reported as a SUBSET, for context only.
+
+export interface TimeSpentSummary {
+    totalHours: number;
+    activeStudents: number;
+    avgMinsPerStudent: number;
+    medianMinsPerStudent: number;
+    avgMinsPerActiveDay: number;
+    testHours: number; // subset of the above, shown for context — never summed in
+}
+
+export async function getTimeSpentSummary(f: AnalyticsFilters): Promise<TimeSpentSummary> {
+    const scope = userScope(f, 1);
+    const scopeAnd = scope.sql ? `AND ${scope.sql}` : "";
+    const day = `(a.attempted_at + ${IST_SHIFT})::date`;
+    const range = dayRangePredicate(day, f, scope.params.length + 1);
+    const rangeAnd = range.sql ? `AND ${range.sql}` : "";
+
+    const row = await readonlyQueryOne<{
+        total_secs: string | null;
+        active_students: string;
+        avg_secs: string | null;
+        median_secs: string | null;
+        avg_secs_per_day: string | null;
+    }>(
+        `WITH per_user AS (
+           SELECT a.user_id,
+                  sum(LEAST(GREATEST(a.time_taken, 0), ${PER_ATTEMPT_CAP_SEC})) AS secs,
+                  count(DISTINCT ${day}) AS active_days
+           FROM question_attempts a
+           JOIN users u ON u.id = a.user_id
+           WHERE ${STUDENTS} ${scopeAnd} ${rangeAnd}
+           GROUP BY a.user_id
+         )
+         SELECT COALESCE(sum(secs), 0)                            AS total_secs,
+                count(*)                                          AS active_students,
+                avg(secs)                                         AS avg_secs,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY secs) AS median_secs,
+                avg(secs::numeric / NULLIF(active_days, 0))       AS avg_secs_per_day
+         FROM per_user`,
+        [...scope.params, ...range.params],
+    );
+
+    // Test time — a SUBSET of the total above (never added to it).
+    const tScope = userScope(f, 1);
+    const tScopeAnd = tScope.sql ? `AND ${tScope.sql}` : "";
+    const testDay = `(c.submitted_at + ${IST_SHIFT})::date`;
+    const tRange = dayRangePredicate(testDay, f, tScope.params.length + 1);
+    const tRangeAnd = tRange.sql ? `AND ${tRange.sql}` : "";
+    const testRow = await readonlyQueryOne<{ test_secs: string | null }>(
+        `SELECT COALESCE(sum(GREATEST(c.total_time_spent, 0)), 0) AS test_secs
+         FROM customtestanalysis c
+         JOIN users u ON u.id = c.user_id
+         WHERE ${STUDENTS} ${tScopeAnd} ${tRangeAnd}`,
+        [...tScope.params, ...tRange.params],
+    );
+
+    return {
+        totalHours: +(num(row?.total_secs) / 3600).toFixed(1),
+        activeStudents: num(row?.active_students),
+        avgMinsPerStudent: +(num(row?.avg_secs) / 60).toFixed(1),
+        medianMinsPerStudent: +(num(row?.median_secs) / 60).toFixed(1),
+        avgMinsPerActiveDay: +(num(row?.avg_secs_per_day) / 60).toFixed(1),
+        testHours: +(num(testRow?.test_secs) / 3600).toFixed(1),
+    };
+}

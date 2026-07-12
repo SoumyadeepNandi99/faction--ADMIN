@@ -6,6 +6,18 @@
  * Style: short, concrete, no jargon where avoidable. No em dashes.
  */
 export const EXPLAIN = {
+    // Time spent
+    totalTimeSpent:
+        "Total hours students spent actively solving questions, added up across every student and every device they used. It is measured on the server from the time recorded against each question attempt, so a student who studies on a phone and a tablet still shows one combined number. Note this is time on task while solving, not total time the app was open: idle time, browsing chapters and watching videos are not counted, because the app does not record them.",
+    timeActiveStudents:
+        "How many students contributed any solving time in the selected range. This is the denominator for the averages beside it, so you can tell whether a high average comes from many students or just a few.",
+    avgTimePerStudent:
+        "The average solving time per active student in the range, with the median shown alongside. The median is usually the more honest figure: a handful of very heavy users pull the average up, so when the two are far apart most students are studying less than the average suggests.",
+    avgTimePerActiveDay:
+        "On a day a student actually studies, this is how long they study for. It separates depth from frequency: a student can have a long streak of short days, and this number is what tells you which one you are looking at.",
+    testTimeShare:
+        "How much of the solving time happened inside custom tests, shown as a share of the total. It is a slice of the total above and is never added on top of it, because questions answered during a test are already counted once in the overall time.",
+
     // North Star & Engagement
     dau: "The number of distinct students who solved at least one question today (in IST). This is the core pulse of the product: it shows how many people actually showed up and practised, not just opened the app.",
     wau: "Distinct students who solved at least one question in the last 7 days. A steadier signal than the daily number, useful for spotting week-over-week trends without daily noise.",

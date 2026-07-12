@@ -292,6 +292,23 @@ export interface ActiveUsersData {
     }[];
 }
 
+/**
+ * Aggregate time-on-task. Summed from `question_attempts.time_taken` (clamped
+ * per attempt), so it counts time spent SOLVING across all of a student's
+ * devices — not total app screentime (no such signal exists in the data).
+ * `testHours` is a subset of `totalHours`, shown for context, never added.
+ */
+export interface TimeSpentData {
+    summary: {
+        totalHours: number;
+        activeStudents: number;
+        avgMinsPerStudent: number;
+        medianMinsPerStudent: number;
+        avgMinsPerActiveDay: number;
+        testHours: number;
+    };
+}
+
 export interface ClassesData { classes: { id: string; name: string }[]; }
 
 export const SUBSCRIPTION_OPTIONS = [
