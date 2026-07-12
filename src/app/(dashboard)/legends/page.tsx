@@ -6,6 +6,7 @@ import { Trophy, Users, Target, AlertTriangle, Search, Info } from "lucide-react
 import { Skeleton } from "@/components/ui/skeleton";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { fetchLegendsProgress, AnalyticsFetchError, type LegendsProgressRow } from "@/lib/api/analytics";
+import { SquadModal } from "@/components/legends/squad-modal";
 
 const STREAM_OPTIONS = [
     { label: "All streams", value: "" },
@@ -23,6 +24,7 @@ const STREAM_BADGE: Record<string, string> = {
 export default function LegendsPage() {
     const [stream, setStream] = useState("");
     const [search, setSearch] = useState("");
+    const [selected, setSelected] = useState<LegendsProgressRow | null>(null);
 
     const { data, error, isLoading } = useSWR(
         `analytics:legends:${stream || "all"}`,
@@ -145,9 +147,14 @@ export default function LegendsPage() {
                             </thead>
                             <tbody>
                                 {filtered.map((r, i) => (
-                                    <tr key={r.userId} className="border-b border-(--panel-border) last:border-0 hover:bg-foreground/[0.03] transition-colors">
+                                    <tr
+                                        key={r.userId}
+                                        onClick={() => setSelected(r)}
+                                        className="border-b border-(--panel-border) last:border-0 hover:bg-brand-500/[0.06] transition-colors cursor-pointer"
+                                        title="View squad"
+                                    >
                                         <td className="px-4 py-3 text-muted-foreground font-mono">{i + 1}</td>
-                                        <td className="px-4 py-3 font-medium text-foreground">{r.name || "Unknown"}</td>
+                                        <td className="px-4 py-3 font-medium text-brand-600 dark:text-brand-400 hover:underline">{r.name || "Unknown"}</td>
                                         <td className="px-4 py-3 text-muted-foreground">{r.className ? `Class ${r.className}` : "—"}</td>
                                         <td className="px-4 py-3">
                                             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STREAM_BADGE[r.stream] ?? "bg-foreground/10 text-muted-foreground"}`}>
@@ -183,9 +190,12 @@ export default function LegendsPage() {
                     Progress = correct solves in the student&apos;s stream subjects since the event went
                     live. The in-app bar counts from the moment each student first opened the event
                     (a per-device value the backend doesn&apos;t store); since the event only became
-                    reachable at launch, this matches what students see almost exactly.
+                    reachable at launch, this matches what students see almost exactly. Tap any student
+                    to see their exact Dream XI (unlocked &amp; locked cards).
                 </span>
             </div>
+
+            {selected && <SquadModal row={selected} onClose={() => setSelected(null)} />}
         </div>
     );
 }
