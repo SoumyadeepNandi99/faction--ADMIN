@@ -166,23 +166,36 @@ export interface PyqInfo {
 }
 
 /**
- * Build a map of every PYQ-tagged question_id -> its PYQ details.
+ * Build a map of PYQ-tagged question_id -> its PYQ details.
+ *
+ * Scope it to the subject (and optionally chapter) currently being built — the
+ * `GET /pyq/` endpoint supports `subject_ids` / `chapter_ids` filters. Without a
+ * scope this walked the ENTIRE PYQ table (up to 20k rows, ~200 sequential
+ * requests), which flooded the network and left the contest builder empty for
+ * seconds. Scoped to one subject it's a few small pages.
  *
  * The `GET /pyq/` list endpoint reports `total: 0` in its no-exam branch, so we
  * can't page by total — instead we walk pages until one comes back short. Bounded
  * by MAX_PAGES so a backend that never returns a short page can't loop forever.
  * Purely client-side — no backend change required.
  */
-export const getPyqQuestionMap = async (): Promise<Map<string, PyqInfo>> => {
+export const getPyqQuestionMap = async (
+    scope?: { subject_id?: string; chapter_id?: string },
+): Promise<Map<string, PyqInfo>> => {
     const LIMIT = 100;
-    const MAX_PAGES = 200; // safety cap: up to 20k PYQs
+    const MAX_PAGES = 200; // safety cap: up to 20k PYQs when unscoped
     const map = new Map<string, PyqInfo>();
 
     for (let page = 0; page < MAX_PAGES; page++) {
         let rows: PyqLite[];
         try {
             const { data } = await apiClient.get<{ pyqs?: PyqLite[] }>("/api/v1/pyq/", {
-                params: { skip: page * LIMIT, limit: LIMIT },
+                params: {
+                    skip: page * LIMIT,
+                    limit: LIMIT,
+                    ...(scope?.subject_id ? { subject_ids: scope.subject_id } : {}),
+                    ...(scope?.chapter_id ? { chapter_ids: scope.chapter_id } : {}),
+                },
             });
             rows = data?.pyqs ?? [];
         } catch {

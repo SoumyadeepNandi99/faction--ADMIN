@@ -80,9 +80,18 @@ export default function CreateContestPage() {
         }).catch(() => { });
     }, []);
 
-    // Used-question IDs + PYQ map on mount (exclude already-used; badge PYQs).
+    // Used-question IDs on mount (exclude already-used across every contest).
     useEffect(() => { getUsedQuestionIds().then(setUsedIds).catch(() => setUsedIds(new Set())); }, []);
-    useEffect(() => { getPyqQuestionMap().then(setPyqMap).catch(() => setPyqMap(new Map())); }, []);
+
+    // PYQ map scoped to the active subject (badge + Hide/Only PYQ filter). Scoping
+    // avoids walking the entire PYQ table (~20k rows) on every visit, which flooded
+    // the network and left the tab empty for seconds. Refetched per subject.
+    useEffect(() => {
+        if (!activeSubject) { setPyqMap(new Map()); return; }
+        getPyqQuestionMap({ subject_id: activeSubject })
+            .then(setPyqMap)
+            .catch(() => setPyqMap(new Map()));
+    }, [activeSubject]);
 
     // Subjects are scoped by class + exam.
     useEffect(() => {
@@ -97,13 +106,20 @@ export default function CreateContestPage() {
         }).catch(() => { });
     }, [form.class_id, form.exam_type]);
 
-    // Question pool for the active subject (hidden, contest-eligible), minus used.
+    // Question pool for the active subject (hidden, contest-eligible).
     // NOTE: the pool is fetched per subject and then filtered to chapter/subtopic
     // client-side. The backend applies no ORDER BY, so a small limit returns an
     // arbitrary (and unstable) slice — chapters past the window silently show too
     // few questions. Fetch the full eligible pool (limit = endpoint max 500) and,
     // when a chapter is selected, scope server-side too so large subjects can't
     // exceed the window. See faction-backend get_questions().
+    //
+    // The pool fetch does NOT wait on usedIds / pyqMap — those are large,
+    // slow-loading maps (getUsedQuestionIds walks every contest; getPyqQuestionMap
+    // pages the whole PYQ table). Gating the pool on them left the tab empty for
+    // several seconds after selecting class/exam. Instead the pool renders as soon
+    // as it arrives, and the used/PYQ filters are applied reactively in visiblePool
+    // once those maps finish loading.
     useEffect(() => {
         if (!activeSubject) { setPool([]); return; }
         setPoolLoading(true);
@@ -112,10 +128,10 @@ export default function CreateContestPage() {
             chapter_id: chapterFilter || undefined,
             limit: 500,
         })
-            .then(res => setPool((res.questions || []).filter(q => !usedIds.has(q.id))))
+            .then(res => setPool(res.questions || []))
             .catch(() => setPool([]))
             .finally(() => setPoolLoading(false));
-    }, [activeSubject, chapterFilter, usedIds]);
+    }, [activeSubject, chapterFilter]);
 
     // Chapter/subtopic maps for the active subject. Reset dependent filters.
     useEffect(() => {
@@ -187,6 +203,7 @@ export default function CreateContestPage() {
     // Pool with filters applied, then sorted.
     const visiblePool = useMemo(() => {
         const filtered = pool.filter(q => {
+            if (usedIds.has(q.id)) return false; // already used in another contest
             const isPyq = pyqMap.has(q.id);
             if (pyqFilter === "hide" && isPyq) return false;
             if (pyqFilter === "only" && !isPyq) return false;
@@ -211,7 +228,7 @@ export default function CreateContestPage() {
                 break;
         }
         return sorted;
-    }, [pool, pyqMap, pyqFilter, chapterFilter, subtopicFilter, difficultyFilter, sortKey, topicToChapter]);
+    }, [pool, usedIds, pyqMap, pyqFilter, chapterFilter, subtopicFilter, difficultyFilter, sortKey, topicToChapter]);
 
     const handleCreate = async (e: React.SyntheticEvent<HTMLFormElement>) => {
         e.preventDefault();
