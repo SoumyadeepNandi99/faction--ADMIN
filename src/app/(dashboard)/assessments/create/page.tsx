@@ -98,14 +98,24 @@ export default function CreateContestPage() {
     }, [form.class_id, form.exam_type]);
 
     // Question pool for the active subject (hidden, contest-eligible), minus used.
+    // NOTE: the pool is fetched per subject and then filtered to chapter/subtopic
+    // client-side. The backend applies no ORDER BY, so a small limit returns an
+    // arbitrary (and unstable) slice — chapters past the window silently show too
+    // few questions. Fetch the full eligible pool (limit = endpoint max 500) and,
+    // when a chapter is selected, scope server-side too so large subjects can't
+    // exceed the window. See faction-backend get_questions().
     useEffect(() => {
         if (!activeSubject) { setPool([]); return; }
         setPoolLoading(true);
-        getContestQuestionPool({ subject_id: activeSubject, limit: 200 })
+        getContestQuestionPool({
+            subject_id: activeSubject,
+            chapter_id: chapterFilter || undefined,
+            limit: 500,
+        })
             .then(res => setPool((res.questions || []).filter(q => !usedIds.has(q.id))))
             .catch(() => setPool([]))
             .finally(() => setPoolLoading(false));
-    }, [activeSubject, usedIds]);
+    }, [activeSubject, chapterFilter, usedIds]);
 
     // Chapter/subtopic maps for the active subject. Reset dependent filters.
     useEffect(() => {
