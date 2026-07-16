@@ -123,11 +123,15 @@ export default function CreateContestPage() {
     useEffect(() => {
         if (!activeSubject) { setPool([]); return; }
         setPoolLoading(true);
-        getContestQuestionPool({
-            subject_id: activeSubject,
-            chapter_id: chapterFilter || undefined,
-            limit: 500,
-        })
+        // Send chapter_id OR subject_id, never both: the backend joins Topic once
+        // per filter, so passing both double-joins Topic and errors (empty pool).
+        // A chapter already implies its subject, so chapter_id alone is sufficient
+        // scoping when a chapter is selected.
+        getContestQuestionPool(
+            chapterFilter
+                ? { chapter_id: chapterFilter, limit: 500 }
+                : { subject_id: activeSubject, limit: 500 }
+        )
             .then(res => setPool(res.questions || []))
             .catch(() => setPool([]))
             .finally(() => setPoolLoading(false));
