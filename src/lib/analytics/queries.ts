@@ -1099,6 +1099,10 @@ export async function getClasses(): Promise<ClassOption[]> {
 // Stored in UTC for the attempted_at comparison (IST 02:00 = UTC 2026-07-11 20:30).
 const LEGENDS_LAUNCH_UTC = "2026-07-11 20:30:00";
 
+// The challenge only records progress up to 19 Jul 2026, 11:59 PM IST.
+// Stored in UTC for the attempted_at comparison (IST 23:59:59 = UTC 2026-07-19 18:29:59).
+const LEGENDS_CUTOFF_UTC = "2026-07-19 18:29:59";
+
 const LEGENDS_TARGET: Record<string, number> = { JEE: 300, NEET: 600, FOUNDATION: 400 };
 
 export interface LegendsProgressRow {
@@ -1147,7 +1151,9 @@ export async function getLegendsProgress(stream?: string): Promise<LegendsProgre
            JOIN topic t   ON t.id = q.topic_id
            JOIN chapter c ON c.id = t.chapter_id
            JOIN subject sub ON sub.id = c.subject_id
-           WHERE a.is_correct AND a.attempted_at >= $1::timestamp
+           WHERE a.is_correct
+             AND a.attempted_at >= $1::timestamp
+             AND a.attempted_at <= $2::timestamp
          )
          SELECT pu.id AS user_id, pu.name, pu.class_name, pu.stream,
            COUNT(*) FILTER (
@@ -1157,7 +1163,7 @@ export async function getLegendsProgress(stream?: string): Promise<LegendsProgre
            ) AS progress
          FROM per_user pu
          JOIN solves s ON s.user_id = pu.id
-         ${wantStream ? "WHERE pu.stream = $2" : ""}
+         ${wantStream ? "WHERE pu.stream = $3" : ""}
          GROUP BY pu.id, pu.name, pu.class_name, pu.stream
          HAVING COUNT(*) FILTER (
              WHERE (pu.stream = 'NEET'       AND s.subj IN ('PHYSICS','CHEMISTRY','BIOLOGY'))
@@ -1165,7 +1171,9 @@ export async function getLegendsProgress(stream?: string): Promise<LegendsProgre
                 OR (pu.stream = 'FOUNDATION' AND s.subj IN ('PHYSICS','CHEMISTRY','MATHS','BIOLOGY'))
            ) > 0
          ORDER BY progress DESC`,
-        wantStream ? [LEGENDS_LAUNCH_UTC, wantStream] : [LEGENDS_LAUNCH_UTC],
+        wantStream
+            ? [LEGENDS_LAUNCH_UTC, LEGENDS_CUTOFF_UTC, wantStream]
+            : [LEGENDS_LAUNCH_UTC, LEGENDS_CUTOFF_UTC],
     );
 
     return rows.map(r => {
